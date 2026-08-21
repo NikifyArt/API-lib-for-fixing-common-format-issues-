@@ -111,9 +111,31 @@ faithful in-place PDF restyle.
 ## Development
 
 ```bash
-python -m pytest      # test suite
+python -m pytest       # test suite (155 tests)
 python -m ruff check . # lint
 ```
+
+### Reporting a bug
+
+Found something wrong? Open an issue using the
+[bug report template](.github/ISSUE_TEMPLATE/bug_report.md), or run
+`/report-bug` in Claude Code to capture it into
+[`docs/BUG-REPORTS.md`](docs/BUG-REPORTS.md).
+
+Every field is optional. A one-line report beats no report.
+
+### Automated quality gates
+
+Working in this repo with Claude Code triggers two checks automatically after a
+push:
+
+| Gate | Fires when | Does |
+| --- | --- | --- |
+| `push-checkpoint` | every 10th push | scoped code review, then tests and lint |
+| `verify` | a push over 100 changed lines | clean-room install, full suite, lint, packaging, real CLI run, invariant checks |
+
+Both are driven by `.claude/hooks/push-counter.py`. Thresholds are constants at
+the top of that file.
 
 ## License
 

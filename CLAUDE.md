@@ -51,7 +51,7 @@ docfix/
     __init__.py          Adapter registry; for_path() dispatches on extension
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
   cli.py                 format / check / templates
-tests/                   137 tests
+tests/                   155 tests (including tests/test_hooks.py for the hook)
 ```
 
 ### Things that will bite you
@@ -81,7 +81,7 @@ tests/                   137 tests
 
 ```bash
 pip install -e ".[dev]"   # install with pytest + ruff
-python -m pytest          # 137 tests, ~0.5s
+python -m pytest          # 155 tests, ~3s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -119,21 +119,39 @@ need no changes.
 the IR is clean, reading back recovers text and rough structure but is lossy.
 Do not promise a faithful in-place PDF restyle.
 
-## The push-checkpoint skill
+## Quality gates (skills + hook)
 
-Every 10 successful pushes, a quality checkpoint runs a scoped code review plus a
-test/lint pass.
+Two gates fire automatically after a successful push, and either or both can
+fire on the same push. A third skill captures bug reports on demand.
 
-- `.claude/hooks/push-counter.py` — a `PostToolUse` hook that counts successful
-  `git push` calls in `.claude/state/push-count` and asks for the skill on every
-  10th. Rejected, interrupted, dry-run, and "everything up-to-date" pushes do not
-  count.
-- `.claude/skills/push-checkpoint/SKILL.md` — the workflow. Scopes the review to
-  the range since `.claude/state/last-checkpoint`, then runs `pytest` and `ruff`.
+| Skill | Fires when | Does |
+| --- | --- | --- |
+| `push-checkpoint` | every 10th successful push | scoped `code-review` since the last checkpoint, then `pytest` + `ruff` |
+| `verify` | a push moves **more than 100** changed lines | clean-room install, full suite, lint, packaging check, real CLI run, invariant checks |
+| `report-bug` | the user reports something broken, or `verify` step 9 finds something | records a structured entry in `docs/BUG-REPORTS.md`, optionally files an issue |
 
-A skill cannot fire on an event — skills are model-invoked — which is why the
-cadence lives in the hook. If the checkpoint never triggers, debug the hook, not
-the skill. `.claude/state/` is gitignored; the count is per-checkout.
+`.claude/hooks/push-counter.py` is the trigger for both automatic gates. It is a
+`PostToolUse` hook, because **a skill cannot fire on an event** — skills are
+model-invoked. If a gate never triggers, debug the hook, not the skill.
+
+How it measures a push: it reads the remote-tracking ref's reflog
+(`<upstream>@{1}..<upstream>`) to find what the push actually moved, then counts
+insertions plus deletions. On a branch's first push there is no previous value,
+so it falls back to the merge base with the default branch. Any git command that
+fails makes it skip silently — a quality gate is never worth breaking a push over.
+
+Pushes that deliberately do **not** count: rejected, interrupted, `--dry-run`,
+and "everything up-to-date".
+
+Tuning: `CHECKPOINT_EVERY` and `LARGE_PUSH_LINES` are constants at the top of the
+hook. The threshold is strictly *greater than* — exactly 100 lines does not fire.
+
+`.claude/state/` holds `push-count`, `last-checkpoint`, and `last-verified`. It
+is gitignored, and **must stay that way**: if the counter file entered the repo,
+every push's measured size would be inflated by the counter's own diff.
+
+The hook has its own tests in `tests/test_hooks.py`, including real git repos
+with real remotes, since the reflog logic cannot be tested any other way.
 
 ## Git workflow
 
