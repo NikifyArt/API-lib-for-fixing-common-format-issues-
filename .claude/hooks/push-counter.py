@@ -42,9 +42,7 @@ def is_push(command: str) -> bool:
     if not re.search(r"\bgit\b[^|;&]*\bpush\b", command):
         return False
     # Dry runs and help text never move a ref.
-    if "--dry-run" in command or "-n " in command or "--help" in command:
-        return False
-    return True
+    return not ("--dry-run" in command or "-n " in command or "--help" in command)
 
 
 def succeeded(response) -> bool:
@@ -60,9 +58,7 @@ def succeeded(response) -> bool:
 
     if FAILURE_MARKERS.search(text):
         return False
-    if NOOP_MARKERS.search(text):
-        return False
-    return True
+    return not NOOP_MARKERS.search(text)
 
 
 def main() -> int:

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docfix"
+version = "0.1.0"
+description = "Find and fix common formatting problems in documents -- Prettier, but for .md, .docx, .pdf and CVs."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "Nik" }]
+keywords = ["formatting", "markdown", "docx", "pdf", "documents", "templates"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "markdown-it-py>=3.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Phase 2-4 format support, kept optional so a Markdown-only install stays light.
+docx = ["python-docx>=1.1"]
+pdf = ["reportlab>=4.0", "pypdf>=4.0", "pdfplumber>=0.11"]
+all = ["docfix[docx,pdf]"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+docfix = "docfix.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["docfix*"]
+
+[tool.setuptools.package-data]
+docfix = ["templates/presets/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 95
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]

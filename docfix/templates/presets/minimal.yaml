@@ -1,0 +1,28 @@
+name: minimal
+description: Almost no styling -- system defaults and plain spacing. Use when the goal is fixing formatting problems without imposing a look.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "*"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+fonts:
+  body:    {family: "system-ui, sans-serif", size: 11}
+  heading: {family: "system-ui, sans-serif", size: 14, weight: 600}
+  mono:    {family: "monospace", size: 10}
+
+spacing:
+  line_height: 1.4
+  paragraph_after: 10
+  heading_before: 14
+  heading_after: 6
+
+colors:
+  text: "#000000"
+  heading: "#000000"
+  accent: "#000000"
+  muted: "#555555"
+  link: "#0000ee"

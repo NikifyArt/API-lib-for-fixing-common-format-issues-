@@ -1,0 +1,28 @@
+name: formal
+description: Serif, restrained, generous spacing. For reports, policy documents, and formal correspondence.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "*"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+fonts:
+  body:    {family: "Georgia, 'Times New Roman', serif", size: 11}
+  heading: {family: "Georgia, 'Times New Roman', serif", size: 16, weight: 700}
+  mono:    {family: "'SF Mono', Menlo, Consolas, monospace", size: 10}
+
+spacing:
+  line_height: 1.5
+  paragraph_after: 12
+  heading_before: 20
+  heading_after: 8
+
+colors:
+  text: "#1a1a1a"
+  heading: "#0b3d5c"
+  accent: "#0b3d5c"
+  muted: "#5c6670"
+  link: "#0b5cad"
