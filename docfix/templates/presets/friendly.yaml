@@ -1,0 +1,28 @@
+name: friendly
+description: Rounded sans-serif, warm accent, roomy line height. For newsletters, internal updates, and anything meant to feel approachable.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "_"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+fonts:
+  body:    {family: "'Nunito', 'Segoe UI', system-ui, sans-serif", size: 11}
+  heading: {family: "'Nunito', 'Segoe UI', system-ui, sans-serif", size: 17, weight: 700}
+  mono:    {family: "'Fira Code', Menlo, monospace", size: 10}
+
+spacing:
+  line_height: 1.65
+  paragraph_after: 14
+  heading_before: 22
+  heading_after: 10
+
+colors:
+  text: "#2b2b2b"
+  heading: "#c2410c"
+  accent: "#ea580c"
+  muted: "#78716c"
+  link: "#c2410c"
