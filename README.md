@@ -7,13 +7,14 @@ Find and fix common formatting problems in documents. Prettier, but for `.md`,
 safe ones, applies a named template, and writes the result to a **new file**.
 The source is never modified.
 
-> **Status: alpha.** Markdown is implemented end to end. DOCX, PDF, and the CV
-> template layer are planned — see [Roadmap](#roadmap).
+> **Status: alpha.** Markdown and PDF are implemented end to end. DOCX and the
+> CV template layer are planned — see [Roadmap](#roadmap).
 
 ## Install
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # Markdown only
+pip install -e ".[dev,pdf]"      # adds PDF support
 ```
 
 ## Use it
@@ -21,6 +22,7 @@ pip install -e ".[dev]"
 ```bash
 docfix check notes.md                      # report problems, write nothing
 docfix format notes.md --template formal   # write notes.formatted.md
+docfix scan report.pdf                     # what would a PDF conversion cost?
 docfix templates                           # list the bundled presets
 ```
 
@@ -84,6 +86,51 @@ colors: {text: "#1a1a1a", accent: "#0b3d5c"}
 
 Pass a path to use your own: `docfix format notes.md -t ./house-style.yaml`.
 
+## Working with PDFs
+
+PDF is fixed-layout. `docfix` **cannot restyle a PDF in place** — it extracts the
+content, formats it, and generates a new PDF. That loses things, so it tells you
+what before it does anything.
+
+```bash
+$ docfix scan report.pdf
+report.pdf: 12 pages, 3 with conversion risks
+
+  tables                   2/12 pages
+  charts / drawings        1/12 pages
+
+  page    4  high: 2 table(s); structure is approximated from ruling lines
+  page    7  medium: 68 vector shapes (a chart, diagram, or table rules) will be lost
+  page   11  high: looks like 2 columns; extracted reading order may be wrong
+```
+
+`docfix format` runs that scan first and asks before converting anything it
+would damage. Unattended (no terminal), it refuses rather than guessing — pass
+`--yes` to accept the losses.
+
+What the scan looks for, page by page: pages with no text layer (scanned
+images), multi-column layouts, tables, embedded images, charts and diagrams,
+rotated text, annotations and form fields, and undecodable characters from fonts
+with a broken character map.
+
+### Checking the extraction
+
+`--keep-intermediate` writes what was extracted as Markdown, so you can read it
+— and correct it — before it becomes a PDF:
+
+```bash
+docfix format report.pdf --keep-intermediate   # also writes report.extracted.md
+docfix format report.extracted.md -t formal    # fix it up, then convert that
+```
+
+This is the reliable path for an important document: extract, eyeball the
+Markdown, fix anything the extractor got wrong, then format from there.
+
+What survives extraction: headings (recovered from font size), paragraphs
+(including lines rejoined and hyphenation repaired), bulleted and numbered
+lists, and tables. Running headers, footers, and page numbers are stripped.
+What does not: figures, exact layout, and multi-column reading order.
+
 ## How it works
 
 Every format is read into one intermediate representation. Detection, fixing,
@@ -99,19 +146,18 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
-| 2 | DOCX adapter (read + write) | planned |
-| 3 | PDF writer, then PDF text extraction | planned |
+| 2 | PDF: risk scan, extraction, generation | **done** |
+| 3 | DOCX adapter (read + write) | planned |
 | 4 | CV/résumé template layer | planned |
 
-**A note on PDF.** PDF is a fixed-layout format and is not symmetrical with the
-others. Generating a PDF from the IR is clean; reading one back recovers text
-and rough structure but is lossy for complex layouts. `docfix` will not claim a
-faithful in-place PDF restyle.
+Fonts in generated PDFs are honoured by *category* — serif, sans, or mono —
+rather than by exact face, since embedding arbitrary fonts would mean shipping
+font files. The PDF base-14 render everywhere.
 
 ## Development
 
 ```bash
-python -m pytest       # test suite (155 tests)
+python -m pytest       # 155 tests, or 191 with the PDF extras
 python -m ruff check . # lint
 ```
 

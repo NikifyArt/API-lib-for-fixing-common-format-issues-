@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from docfix.adapters import markdown as _markdown
+from docfix.adapters import pdf as _pdf
 from docfix.ir import Document
 from docfix.templates import Template
 
@@ -38,8 +39,17 @@ MARKDOWN = Adapter(
     source_text=_markdown.source_text,
 )
 
-# Phases 2-4 register docx, pdf, and cv adapters here.
-ADAPTERS: tuple[Adapter, ...] = (MARKDOWN,)
+PDF = Adapter(
+    name="pdf",
+    extensions=_pdf.EXTENSIONS,
+    read_path=_pdf.read_path,
+    write_path=_pdf.write_path,
+    # PDF has no raw text source, so the source-level rules do not apply.
+    source_text=None,
+)
+
+# Phases 2 and 4 register the docx and cv adapters here.
+ADAPTERS: tuple[Adapter, ...] = (MARKDOWN, PDF)
 
 
 def supported_extensions() -> list[str]:
@@ -59,8 +69,9 @@ def for_path(path: str) -> Adapter:
 
 __all__ = [
     "ADAPTERS",
-    "Adapter",
     "MARKDOWN",
+    "PDF",
+    "Adapter",
     "UnsupportedFormatError",
     "for_path",
     "supported_extensions",

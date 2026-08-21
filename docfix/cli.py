@@ -38,9 +38,89 @@ def _summary(issues) -> str:
     return ", ".join(f"{counts[s]} {s}" for s in ("error", "warning", "info") if s in counts)
 
 
+def _confirm_lossy_conversion(args) -> bool:
+    """Show what a PDF conversion would damage and ask before doing it.
+
+    PDF is fixed-layout: `docfix` cannot edit one in place, it extracts the
+    content and generates a new file. That is exactly the situation where the
+    user should see what is about to be lost before it happens.
+    """
+    from docfix.adapters import pdf
+
+    if os.path.splitext(args.file)[1].lower() not in pdf.EXTENSIONS:
+        return True
+
+    try:
+        report = docfix.scan(args.file)
+    except pdf.MissingDependencyError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a failed scan must not block the user
+        print(f"docfix: could not scan {args.file}: {exc}", file=sys.stderr)
+        return True
+
+    if not report.needs_confirmation():
+        return True
+
+    print(report.report(), file=sys.stderr)
+    print(file=sys.stderr)
+    print(
+        "docfix cannot restyle a PDF in place. It extracts the text and builds a\n"
+        "new PDF, so the items above will not survive. The original file is not\n"
+        "touched either way.",
+        file=sys.stderr,
+    )
+    if report.blocking_pages:
+        print(
+            f"\n{len(report.blocking_pages)} page(s) have no text layer at all -- "
+            "the converted output will be missing that content entirely.",
+            file=sys.stderr,
+        )
+    print(
+        "\nTip: --keep-intermediate writes the extracted Markdown so you can check\n"
+        "and correct it before converting.",
+        file=sys.stderr,
+    )
+
+    if args.yes:
+        return True
+
+    if not sys.stdin.isatty():
+        print(
+            "\ndocfix: refusing to convert unattended. Re-run with --yes to accept "
+            "the losses above.",
+            file=sys.stderr,
+        )
+        return False
+
+    try:
+        answer = input("\nConvert anyway? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)
+        return False
+    return answer in ("y", "yes")
+
+
+def cmd_scan(args) -> int:
+    report = docfix.scan(args.file)
+    print(report.report(max_pages=args.max_pages))
+    if report.blocking_pages:
+        return EXIT_ISSUES
+    return EXIT_OK
+
+
 def cmd_format(args) -> int:
-    result = docfix.format_file(args.file, template=args.template, output=args.output)
+    if not _confirm_lossy_conversion(args):
+        return EXIT_ERROR
+
+    result = docfix.format_file(
+        args.file,
+        template=args.template,
+        output=args.output,
+        keep_intermediate=args.keep_intermediate,
+    )
     print(f"{result.source_path} -> {result.output_path}  [template: {result.template}]")
+    if result.intermediate_path:
+        print(f"  extracted Markdown kept at {result.intermediate_path}")
     print(f"  {len(result.fixed)} fixed automatically, {len(result.remaining)} to review")
     if result.remaining and not args.quiet:
         print("\nNeeds a look:")
@@ -89,6 +169,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="output path (default: NAME.formatted.EXT; the source is never modified)",
     )
     fmt.add_argument("-q", "--quiet", action="store_true", help="suppress the issue list")
+    fmt.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="accept a lossy PDF conversion without being asked",
+    )
+    fmt.add_argument(
+        "--keep-intermediate",
+        nargs="?",
+        const=True,
+        default=None,
+        metavar="PATH",
+        help="also write the extracted content as Markdown, so it can be checked "
+        "or hand-corrected (default: NAME.extracted.md)",
+    )
     fmt.set_defaults(func=cmd_format)
 
     check = subparsers.add_parser(
@@ -96,6 +191,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check.add_argument("file")
     check.set_defaults(func=cmd_check)
+
+    scan = subparsers.add_parser(
+        "scan",
+        help="inspect a PDF page by page and report what conversion would put at risk",
+    )
+    scan.add_argument("file")
+    scan.add_argument(
+        "--max-pages",
+        type=int,
+        default=12,
+        help="how many risky pages to list individually (default: 12)",
+    )
+    scan.set_defaults(func=cmd_scan)
 
     templates = subparsers.add_parser("templates", help="list the bundled templates")
     templates.set_defaults(func=cmd_templates)
@@ -107,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (TemplateError, adapters.UnsupportedFormatError, ValueError) as exc:
+    except (TemplateError, adapters.UnsupportedFormatError, ImportError, ValueError) as exc:
         print(f"docfix: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except FileNotFoundError as exc:

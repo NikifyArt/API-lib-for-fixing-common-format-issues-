@@ -36,6 +36,8 @@ class Result:
     output_path: str | None
     template: str
     issues: list[Issue] = field(default_factory=list)
+    # Set when the Markdown intermediate was kept; see format_file().
+    intermediate_path: str | None = None
 
     @property
     def fixed(self) -> list[Issue]:
@@ -63,6 +65,22 @@ def _resolve_template(template: str | Template) -> Template:
     return template if isinstance(template, Template) else load(template)
 
 
+def scan(path: str):
+    """Inspect a PDF page by page and report what conversion would put at risk.
+
+    PDF only -- it is the one supported format where reading is lossy enough that
+    the user should see what they are about to lose before converting.
+    """
+    from docfix.adapters import pdf
+
+    if os.path.splitext(path)[1].lower() not in pdf.EXTENSIONS:
+        raise adapters.UnsupportedFormatError(
+            f"scan is only meaningful for PDF files, not {os.path.splitext(path)[1]!r}; "
+            "use detect() to report formatting issues in any supported format"
+        )
+    return pdf.scan(path)
+
+
 def detect(path: str) -> list[Issue]:
     """Report formatting problems without writing anything."""
     adapter = adapters.for_path(path)
@@ -75,10 +93,17 @@ def format_file(
     path: str,
     template: str | Template = DEFAULT_TEMPLATE,
     output: str | None = None,
+    keep_intermediate: str | bool | None = None,
 ) -> Result:
     """Normalize a document and write the result to a new file.
 
     The source file is never modified. Writing over the input is refused.
+
+    `keep_intermediate` also writes the extracted content as Markdown, which is
+    the readable form of what was understood from the source. Useful for a PDF,
+    where extraction is lossy and worth eyeballing -- and hand-editable, so the
+    Markdown can be corrected and re-formatted. Pass a path, or True to derive
+    one (`report.pdf` -> `report.extracted.md`).
     """
     adapter = adapters.for_path(path)
     resolved = _resolve_template(template)
@@ -94,12 +119,27 @@ def format_file(
             "docfix always writes to a separate file"
         )
 
-    adapter.write_path(normalize(doc), resolved, destination)
+    normalized = normalize(doc)
+
+    intermediate_path = None
+    if keep_intermediate:
+        from docfix.adapters import markdown as _md
+
+        intermediate_path = (
+            keep_intermediate
+            if isinstance(keep_intermediate, str)
+            else f"{os.path.splitext(path)[0]}.extracted.md"
+        )
+        with open(intermediate_path, "w", encoding="utf-8") as handle:
+            handle.write(_md.write(normalized, resolved))
+
+    adapter.write_path(normalized, resolved, destination)
     return Result(
         source_path=path,
         output_path=destination,
         template=resolved.name,
         issues=issues,
+        intermediate_path=intermediate_path,
     )
 
 
@@ -129,4 +169,5 @@ __all__ = [
     "format_text",
     "list_templates",
     "load",
+    "scan",
 ]

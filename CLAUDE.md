@@ -50,8 +50,9 @@ docfix/
   adapters/
     __init__.py          Adapter registry; for_path() dispatches on extension
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
+    pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
   cli.py                 format / check / templates
-tests/                   155 tests (including tests/test_hooks.py for the hook)
+tests/                   155 tests, 191 with the PDF extras installed
 ```
 
 ### Things that will bite you
@@ -77,11 +78,40 @@ tests/                   155 tests (including tests/test_hooks.py for the hook)
 - **`Run.raw`** means "emit verbatim". It carries inline images, which the IR does
   not model structurally. Skip raw runs when escaping or rewriting markers.
 
+### PDF specifics
+
+- **PDF is never edited in place.** It is extracted to the IR and a new PDF is
+  generated. Do not add an in-place path; it is not achievable for fixed layout.
+- **`scan()` runs before any conversion.** The CLI shows the per-page risk report
+  and asks. Unattended, it refuses rather than guessing — `--yes` overrides. Do
+  not make a lossy conversion silent.
+- **Extract tables first, then lines.** `_page_content` pulls tables out and
+  excludes their bounding boxes from the line flow. Without that, table cells
+  extract as loose words and get absorbed into the preceding paragraph or list
+  item. This was a real bug, not a hypothetical.
+- **Bullets often do not decode.** Symbol and dingbat fonts frequently lack a
+  ToUnicode map, so a bullet arrives as `(cid:127)`. `BULLET_MARKER` matches the
+  cid form deliberately; without it the bullets merge into one paragraph.
+- **`"sans-serif"` contains `"serif"`.** Check sans before serif in `_base_font`
+  or every sans stack maps to Times.
+- **The running-header band is 15% of page height**, not 8%. A typical page has
+  a 1-inch margin (~8.5% of A4), so a tighter band sits above the header and
+  catches nothing.
+- **PDF passes `source=None`**, so source-level rules are skipped — there is no
+  raw text to scan.
+- **Fonts map by category, not face.** serif/sans/mono onto the PDF base-14.
+  Embedding real faces would mean shipping font files.
+- **`_require` catches `BaseException`, not `ImportError`.** A broken native
+  dependency surfaces as a pyo3 panic, and a raw Rust traceback tells the user
+  nothing about what to install. `tests/test_pdf.py` skips on the same basis —
+  `pytest.importorskip` does not catch a panic and collection would fail.
+
 ## Commands
 
 ```bash
-pip install -e ".[dev]"   # install with pytest + ruff
-python -m pytest          # 155 tests, ~3s
+pip install -e ".[dev]"       # pytest + ruff
+pip install -e ".[dev,pdf]"   # adds pdfplumber + reportlab
+python -m pytest          # 155 tests (191 with PDF extras), ~3s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -106,8 +136,8 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
-| 2 | DOCX adapter (read + write) | planned |
-| 3 | PDF writer, then PDF text extraction | planned |
+| 2 | PDF: risk scan, extraction, generation | **done** |
+| 3 | DOCX adapter (read + write) | planned |
 | 4 | CV/résumé template layer | planned |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
@@ -117,7 +147,9 @@ need no changes.
 
 **PDF is not symmetrical with the others.** It is fixed-layout: generating from
 the IR is clean, reading back recovers text and rough structure but is lossy.
-Do not promise a faithful in-place PDF restyle.
+Never promise a faithful in-place PDF restyle. The honest workflow, and the one
+the CLI nudges toward, is `--keep-intermediate`: extract to Markdown, let the
+user check and correct it, then format from there.
 
 ## Quality gates (skills + hook)
 
