@@ -119,8 +119,14 @@ fallback:
 
 # CID collections built into reportlab. No font file, no download; the PDF
 # reader supplies the glyphs, so output is not fully self-contained.
+#
+# Which scripts each collection actually serves was measured by rendering text
+# and extracting it back, not taken from the collection's name. No single
+# collection covers all of CJK: HeiseiKakuGo-W5 handles Han (simplified and
+# traditional) plus kana but not Hangul, so a second entry covers Korean.
+# MSung-Light did not survive a round trip at all and is deliberately unused.
 cid_fonts:
-  japanese: HeiseiKakuGo-W5
-  simplified_chinese: STSong-Light
-  traditional_chinese: MSung-Light
-  korean: HYSMyeongJo-Medium
+  - name: HeiseiKakuGo-W5
+    scripts: [han, kana]
+  - name: HYSMyeongJo-Medium
+    scripts: [hangul]

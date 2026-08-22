@@ -37,7 +37,10 @@ docfix = "docfix.cli:main"
 include = ["docfix*"]
 
 [tool.setuptools.package-data]
-docfix = ["templates/presets/*.yaml"]
+# Data files the package loads at runtime. An editable install resolves these
+# from the source tree whether or not they are declared here, so a missing
+# entry only shows up in a real wheel -- build one to check.
+docfix = ["templates/presets/*.yaml", "fonts/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

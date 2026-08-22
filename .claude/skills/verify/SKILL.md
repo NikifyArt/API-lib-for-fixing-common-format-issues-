@@ -67,20 +67,47 @@ python3 -m ruff check .
 Must be clean. Do not silence a rule to pass — fix the code, or say why the rule
 is wrong here.
 
-## Step 4 — packaging
+## Step 4 — packaging, against a real wheel
+
+**An editable install cannot prove this.** `pip install -e` resolves data files
+straight from the source tree, so a file missing from `package-data` works
+perfectly in development and crashes for anyone who installs the package. This
+has already happened once, to `docfix/fonts/catalog.yaml`.
+
+So build a wheel and inspect it:
 
 ```bash
-/tmp/verify-env/bin/python -c "import docfix, docfix.cli; print(docfix.__version__)"
+/tmp/verify-env/bin/pip install --quiet build
+/tmp/verify-env/bin/python -m build --wheel --outdir /tmp/verify-wheel
 /tmp/verify-env/bin/python -c "
-from docfix.templates import list_presets, load
-assert list_presets(), 'presets missing from the installed package'
-[load(n) for n in list_presets()]
-print('presets ship correctly:', list_presets())
+import glob, zipfile
+wheel = sorted(glob.glob('/tmp/verify-wheel/*.whl'))[-1]
+names = zipfile.ZipFile(wheel).namelist()
+data = [n for n in names if n.endswith(('.yaml', '.yml', '.json'))]
+print('data files in wheel:'); [print('  ', n) for n in data]
+assert any('presets' in n for n in data), 'preset YAML missing from the wheel'
+assert any('catalog' in n for n in data), 'font catalogue missing from the wheel'
 "
 ```
 
-Preset YAML files are package *data*. They are the thing most likely to be
-missing from an installed package while working fine from the source tree.
+Then install that wheel — not the source tree — into a *second* clean
+environment and confirm it actually runs:
+
+```bash
+python3 -m venv /tmp/verify-wheel-env
+/tmp/verify-wheel-env/bin/pip install --quiet "$(ls /tmp/verify-wheel/*.whl)[pdf]"
+/tmp/verify-wheel-env/bin/python -c "
+from docfix.fonts import load_catalog, pool
+from docfix.templates import list_presets, load
+assert load_catalog().licenses, 'font catalogue did not load from the install'
+assert list_presets(); [load(n) for n in list_presets()]
+print('packaged install works')
+"
+/tmp/verify-wheel-env/bin/docfix --version
+```
+
+Any runtime data file — preset YAML, the font catalogue, anything loaded by
+path rather than imported — must appear in that listing.
 
 ## Step 5 — exercise it for real
 

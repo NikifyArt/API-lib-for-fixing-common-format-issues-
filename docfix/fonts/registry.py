@@ -61,7 +61,7 @@ class Catalog:
     licenses: list[License] = field(default_factory=list)
     categories: dict[str, str] = field(default_factory=dict)
     fallback: list[str] = field(default_factory=list)
-    cid_fonts: dict[str, str] = field(default_factory=dict)
+    cid_fonts: list[dict] = field(default_factory=list)
 
     def classify(self, info: sfnt.FontInfo) -> License:
         """The first matching signature wins, so order the catalogue specific-first."""
@@ -104,7 +104,7 @@ def load_catalog(path: str = CATALOG_PATH) -> Catalog:
         licenses=licenses,
         categories=categories,
         fallback=list(data.get("fallback", [])),
-        cid_fonts=dict(data.get("cid_fonts", {})),
+        cid_fonts=list(data.get("cid_fonts", [])),
     )
 
 

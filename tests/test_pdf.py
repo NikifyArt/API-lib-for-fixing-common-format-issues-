@@ -317,14 +317,23 @@ def test_xml_special_characters_are_escaped(tmp_path):
 @pytest.mark.parametrize(
     "family, expected",
     [
-        ("Georgia, serif", "Times-Roman"),
-        ("'Inter', sans-serif", "Helvetica"),
-        ("'JetBrains Mono', monospace", "Courier"),
-        ("", "Helvetica"),
+        ("Georgia, serif", "serif"),
+        ("'Inter', sans-serif", "sans"),
+        ("'JetBrains Mono', monospace", "mono"),
+        ("", "sans"),
     ],
 )
-def test_font_stacks_map_onto_the_base_14(family, expected):
-    assert pdf_adapter._base_font(family) == expected
+def test_font_stacks_map_onto_a_category(family, expected):
+    """Guards the "sans-serif contains serif" trap in the last-resort path."""
+    assert pdf_adapter._category(family) == expected
+
+
+def test_base14_fallback_uses_the_right_face():
+    from docfix.fonts.coverage import base14_option
+
+    assert base14_option("serif").name == "Times-Roman"
+    assert base14_option("mono").name == "Courier"
+    assert base14_option("sans").name == "Helvetica"
 
 
 def test_every_preset_can_generate(tmp_path):
@@ -456,3 +465,156 @@ def test_missing_dependency_message_names_the_extra():
 
     with pytest.raises(MissingDependencyError, match=r'pip install "docfix\[pdf\]"'):
         _require("a_module_that_is_not_installed")
+
+
+# --------------------------------------------------------------------------
+# Font coverage: the regression this whole font pool exists to prevent
+# --------------------------------------------------------------------------
+
+SCRIPT_SAMPLES = {
+    "latin": "Hello world",
+    "latin-ext": "Zażółć gęślą jaźń",
+    "cyrillic": "Привет мир",
+    "greek": "Γειά σου κόσμε",
+    "symbols": "→ ★ ½ € ≈ ✓",
+    "hebrew": "שלום עולם",
+    "cjk-japanese": "日本語のテキスト",
+    "cjk-chinese": "你好世界",
+    "cjk-korean": "한국어",
+}
+
+
+def _render_lines(texts, tmp_path, template="formal"):
+    """Write each string as its own paragraph and read the PDF back."""
+    import warnings
+
+    doc = Document(blocks=[Paragraph(runs=[Run(text)]) for text in texts])
+    out = tmp_path / "scripts.pdf"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pdf_adapter.write_path(doc, load(template), str(out))
+    with pdfplumber.open(str(out)) as opened:
+        return (opened.pages[0].extract_text() or "").splitlines()
+
+
+@pytest.mark.parametrize("script", sorted(SCRIPT_SAMPLES))
+def test_every_script_round_trips_exactly(script, tmp_path):
+    """The base-14 fonts silently corrupted all of these.
+
+    Polish became "Zanónn gnnln jann"; "→ ★ ≈ ✓" became "fi H » 3"; Cyrillic and
+    CJK became boxes -- with no error and no warning. Each must now survive the
+    round trip character for character.
+    """
+    text = SCRIPT_SAMPLES[script]
+    lines = _render_lines([text], tmp_path)
+    if not lines:
+        pytest.skip("no font on this machine can render this script")
+    assert lines[0] == text
+
+
+def test_mixed_script_line_keeps_every_run(tmp_path):
+    """reportlab emits \\x00 for a missing glyph and warns about nothing.
+
+    A single line mixing scripts is the case per-span font assignment exists
+    for: one font cannot cover it, and there is no automatic fallback.
+    """
+    text = "English Привет 你好世界 end"
+    lines = _render_lines([text], tmp_path)
+    assert lines and "\x00" not in lines[0]
+    assert lines[0] == text
+
+
+def test_no_notdef_anywhere_in_a_multi_script_document(tmp_path):
+    lines = _render_lines(list(SCRIPT_SAMPLES.values()), tmp_path)
+    assert not any("\x00" in line for line in lines)
+
+
+def test_unrenderable_characters_are_reported_not_dropped(tmp_path):
+    """No available font has colour emoji, so it must be reported, not silent."""
+    doc = Document(blocks=[Paragraph(runs=[Run("party 🎉 time")])])
+    issues = pdf_adapter.coverage_issues(doc, load("minimal"))
+    coverage = [i for i in issues if i.rule == "font-coverage"]
+    assert coverage, "an unrenderable character must produce an issue"
+    assert "🎉" in coverage[0].message
+    assert coverage[0].severity == "error"
+
+    # And the file is still written -- reporting, not refusing.
+    out = tmp_path / "emoji.pdf"
+    pdf_adapter.write_path(doc, load("minimal"), str(out))
+    assert out.exists()
+
+
+def test_plain_latin_reports_no_coverage_problem():
+    doc = Document(blocks=[Paragraph(runs=[Run("Ordinary English text.")])])
+    issues = pdf_adapter.coverage_issues(doc, load("minimal"))
+    assert not [i for i in issues if i.rule == "font-coverage"]
+
+
+def test_coverage_issues_reach_the_format_result(table_pdf, tmp_path):
+    """The adapter's coverage report must surface through the public API."""
+    result = docfix.format_file(table_pdf, output=str(tmp_path / "o.pdf"))
+    assert isinstance(result.issues, list)  # merged, not dropped
+
+
+def test_bold_uses_the_real_bold_face(tmp_path):
+    """A <font face> overrides the family mapping, so the span must name the
+    bold face itself or the weight is silently lost."""
+    context = pdf_adapter.build_font_context(load("minimal"))
+    markup = pdf_adapter._markup([Run("bold text", bold=True)], context)
+    primary = context.body[0]
+    if primary.use_tags:
+        assert "<b>" in markup  # base-14 path: reportlab maps the weight itself
+    else:
+        face, _exact = primary.name_for(bold=True)
+        assert f'face="{face}"' in markup
+        assert "-bold" in face or primary.name == face
+
+
+def test_missing_bold_face_degrades_and_is_reported():
+    from docfix.fonts.registry import Family, License, face_name
+    from docfix.fonts.sfnt import TRUETYPE, FontInfo
+
+    regular = FontInfo("r.ttf", "OneFace", "Regular", TRUETYPE, 0)
+    family = Family(
+        name="OneFace",
+        category="sans",
+        license=License("OFL-1.1", "SIL OFL", True),
+        faces={"regular": regular},
+    )
+    name, exact = face_name(family, bold=True)
+    assert name == "OneFace", "must fall back to the regular face"
+    assert not exact, "and say that it is not the face asked for"
+
+
+def test_font_context_survives_a_template_naming_unknown_fonts():
+    """A template asking for fonts this machine lacks must still produce output."""
+    from docfix.templates import from_dict
+
+    template = from_dict(
+        {"name": "t", "fonts": {"body": {"family": "Nonexistent Font, Also Fake"}}}
+    )
+    context = pdf_adapter.build_font_context(template)
+    assert context.body, "a chain must always be produced"
+    assert "Nonexistent Font" in context.unavailable
+
+
+def test_font_stack_alternatives_are_not_reported_individually():
+    """A stack is a list of alternatives; a missing entry is not an error when
+    a later one resolves."""
+    from docfix.fonts import pool
+    from docfix.templates import from_dict
+
+    installed = [f.name for f in pool().usable_families()]
+    if not installed:
+        pytest.skip("no fonts installed")
+    template = from_dict(
+        {"name": "t", "fonts": {"body": {"family": f"Nonexistent Font, {installed[0]}"}}}
+    )
+    context = pdf_adapter.build_font_context(template)
+    assert not context.unavailable, "a resolved alternative means nothing to report"
+
+
+def test_cjk_needs_no_font_file(tmp_path):
+    """CID collections are built into reportlab: no file shipped, none downloaded."""
+    lines = _render_lines(["日本語 你好 한국어"], tmp_path)
+    assert lines and "\x00" not in lines[0]

@@ -285,3 +285,169 @@ def test_liberation_declares_the_open_font_licence():
         pytest.skip("Liberation Sans not available")
     info = sfnt.read(path, with_coverage=False)
     assert "OFL" in info.license_url or "Open Font License" in info.license_text
+
+
+# --------------------------------------------------------------------------
+# The pool and the licence gate
+# --------------------------------------------------------------------------
+
+
+def test_pool_builds_without_error():
+    from docfix.fonts import pool
+
+    available = pool()
+    assert isinstance(available.families, dict)
+
+
+def test_only_open_licensed_fonts_are_auto_selectable():
+    """The core promise: docfix never picks a font it cannot verify is open."""
+    from docfix.fonts import pool
+
+    for family in pool().usable_families():
+        if family.auto_selectable:
+            assert family.license.open, f"{family.name} auto-selected without an open licence"
+
+
+def test_undeclared_licence_is_not_treated_as_open():
+    from docfix.fonts.registry import UNKNOWN_LICENSE
+
+    assert not UNKNOWN_LICENSE.open
+
+
+def test_plain_gpl_is_not_auto_selectable():
+    """Without the font embedding exception it is unclear whether embedding
+    places the document under the GPL, so plain GPL is not auto-selected."""
+    from docfix.fonts import load_catalog
+
+    by_id = {entry.id: entry for entry in load_catalog().licenses}
+    assert by_id["GPL"].open is False
+    assert by_id["GPL-font-exception"].open is True
+
+
+def test_licence_is_read_from_the_font_not_its_name():
+    """A font claiming a familiar family name but declaring nothing stays unknown."""
+    from docfix.fonts import load_catalog
+    from docfix.fonts.registry import UNKNOWN_LICENSE
+
+    catalog = load_catalog()
+    impostor = sfnt.FontInfo("x.ttf", "Liberation Sans", "Regular", sfnt.TRUETYPE, 0)
+    assert catalog.classify(impostor) is UNKNOWN_LICENSE
+
+
+@pytest.mark.parametrize(
+    "url, text, expected",
+    [
+        ("http://scripts.sil.org/OFL", "", "OFL-1.1"),
+        ("", "Licensed under the SIL Open Font License, Version 1.1", "OFL-1.1"),
+        ("http://dejavu.sourceforge.net/wiki/index.php/License", "", "Bitstream-Vera"),
+        ("", "GPL2 with font embedding exception", "GPL-font-exception"),
+        ("", "This computer font is part of GNU FreeFont.", "GPL-font-exception"),
+        ("", "Licensed under the GNU General Public License", "GPL"),
+        ("", "totally made up terms", "unknown"),
+    ],
+)
+def test_licence_signatures_match_real_declarations(url, text, expected):
+    from docfix.fonts import load_catalog
+
+    info = sfnt.FontInfo("x.ttf", "X", "Regular", sfnt.TRUETYPE, 0,
+                         license_text=text, license_url=url)
+    assert load_catalog().classify(info).id == expected
+
+
+def test_register_refuses_a_font_that_forbids_embedding():
+    from docfix.fonts.registry import Family, FontError, License, register
+
+    blocked = sfnt.FontInfo("x.ttf", "Blocked", "Regular", sfnt.TRUETYPE,
+                            sfnt.FSTYPE_RESTRICTED)
+    family = Family(
+        name="Blocked",
+        category="sans",
+        license=License("OFL-1.1", "SIL OFL", True),
+        faces={"regular": blocked},
+    )
+    assert not family.embeddable
+    assert not family.auto_selectable, "an open licence cannot override fsType"
+    with pytest.raises(FontError, match="Blocked"):
+        register(family)
+
+
+def test_unloadable_fonts_are_kept_out_of_the_pool():
+    from docfix.fonts import pool
+
+    for family in pool().usable_families():
+        assert family.loadable
+
+
+# --------------------------------------------------------------------------
+# Span resolution
+# --------------------------------------------------------------------------
+
+
+def _option(name, codepoints):
+    from docfix.fonts import FontOption
+
+    return FontOption(name=name, family=name, covers=lambda c: c in codepoints)
+
+
+def test_spans_use_the_first_font_that_covers_each_character():
+    from docfix.fonts import resolve_spans
+
+    latin = _option("Latin", set(range(0x00, 0x180)))
+    greek = _option("Greek", set(range(0x370, 0x400)))
+    spans, missing = resolve_spans("abcΓΔΕabc", [latin, greek])
+    assert [(t, o.name) for t, o in spans] == [
+        ("abc", "Latin"), ("ΓΔΕ", "Greek"), ("abc", "Latin"),
+    ]
+    assert not missing
+
+
+def test_whitespace_does_not_fragment_spans():
+    from docfix.fonts import resolve_spans
+
+    latin = _option("Latin", set(range(0x00, 0x180)))
+    spans, _ = resolve_spans("a b c", [latin])
+    assert len(spans) == 1
+
+
+def test_characters_nothing_covers_are_reported_and_kept():
+    from docfix.fonts import resolve_spans
+
+    latin = _option("Latin", set(range(0x00, 0x180)))
+    spans, missing = resolve_spans("ab中cd", [latin])
+    assert missing == {"中"}
+    assert "".join(text for text, _ in spans) == "ab中cd", "text must not be dropped"
+
+
+def test_empty_text_and_empty_chain_are_handled():
+    from docfix.fonts import resolve_spans
+
+    assert resolve_spans("", []) == ([], set())
+    spans, missing = resolve_spans("abc", [])
+    assert "".join(t for t, _ in spans) == "abc"
+    assert not missing
+
+
+def test_cid_ranges_are_split_by_script():
+    """No single CID collection covers all of CJK, so the ranges are separate.
+
+    Measured: HeiseiKakuGo-W5 renders Han and kana but not Hangul;
+    HYSMyeongJo-Medium renders Hangul.
+    """
+    from docfix.fonts.coverage import in_ranges, ranges_for
+
+    han = ranges_for(["han", "kana"])
+    hangul = ranges_for(["hangul"])
+    assert in_ranges(ord("日"), han) and in_ranges(ord("你"), han)
+    assert not in_ranges(ord("한"), han)
+    assert in_ranges(ord("한"), hangul)
+    assert not in_ranges(ord("日"), hangul)
+
+
+def test_base14_fallback_caps_coverage_at_latin1():
+    """So that anything beyond gets reported rather than mis-rendered."""
+    from docfix.fonts.coverage import base14_option
+
+    option = base14_option("sans")
+    assert option.can_render("A")
+    assert not option.can_render("Ж")
+    assert option.use_tags, "base-14 relies on reportlab's own <b>/<i> mapping"

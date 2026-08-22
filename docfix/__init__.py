@@ -111,6 +111,10 @@ def format_file(
     doc = adapter.read_path(path)
     source = adapter.source_text(path) if adapter.source_text else None
     issues = run_all(doc, source)
+    if adapter.coverage_issues:
+        # What the target format cannot render, which only the template and the
+        # fonts on this machine can decide.
+        issues.extend(adapter.coverage_issues(doc, resolved))
 
     destination = output or default_output_path(path)
     if os.path.abspath(destination) == os.path.abspath(path):

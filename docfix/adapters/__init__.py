@@ -29,6 +29,10 @@ class Adapter:
     write_path: Callable[[Document, Template, str], None]
     # Returns raw source for source-level rules, or None for binary formats.
     source_text: Callable[[str], str] | None = None
+    # Reports what this format cannot render for a given template -- font
+    # coverage, for instance. Depends on the template and the machine, so it
+    # cannot be a plain structure rule.
+    coverage_issues: Callable[..., list] | None = None
 
 
 MARKDOWN = Adapter(
@@ -46,6 +50,7 @@ PDF = Adapter(
     write_path=_pdf.write_path,
     # PDF has no raw text source, so the source-level rules do not apply.
     source_text=None,
+    coverage_issues=_pdf.coverage_issues,
 )
 
 # Phases 2 and 4 register the docx and cv adapters here.
