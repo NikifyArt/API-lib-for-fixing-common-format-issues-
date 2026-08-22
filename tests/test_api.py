@@ -96,3 +96,37 @@ def test_missing_file_raises(tmp_path):
 
 def test_list_templates():
     assert "formal" in docfix.list_templates()
+
+
+def test_output_extension_selects_the_writer(tmp_path):
+    """BUG-001: the writer must come from the output path, not the input.
+
+    It used to resolve one adapter from the input and use it for both, so
+    `notes.md -o out.pdf` wrote Markdown text into a file named .pdf and
+    reported success.
+    """
+    pytest.importorskip("reportlab")
+    source = tmp_path / "notes.md"
+    source.write_text("# Title\n\ntext\n")
+    out = tmp_path / "out.pdf"
+
+    docfix.format_file(str(source), output=str(out))
+
+    assert out.read_bytes().startswith(b"%PDF"), "a .pdf output must be a real PDF"
+
+
+def test_same_extension_still_round_trips(tmp_path):
+    source = tmp_path / "notes.md"
+    source.write_text("# Title\n\n* a\n+ b\n")
+    out = tmp_path / "out.md"
+    docfix.format_file(str(source), output=str(out))
+    assert out.read_text() == "# Title\n\n- a\n- b\n"
+
+
+def test_unsupported_output_extension_is_rejected(tmp_path):
+    from docfix.adapters import UnsupportedFormatError
+
+    source = tmp_path / "notes.md"
+    source.write_text("# T\n")
+    with pytest.raises(UnsupportedFormatError, match="no adapter"):
+        docfix.format_file(str(source), output=str(tmp_path / "out.rtf"))

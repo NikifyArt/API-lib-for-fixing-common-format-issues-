@@ -105,16 +105,8 @@ def format_file(
     Markdown can be corrected and re-formatted. Pass a path, or True to derive
     one (`report.pdf` -> `report.extracted.md`).
     """
-    adapter = adapters.for_path(path)
+    reader = adapters.for_path(path)
     resolved = _resolve_template(template)
-
-    doc = adapter.read_path(path)
-    source = adapter.source_text(path) if adapter.source_text else None
-    issues = run_all(doc, source)
-    if adapter.coverage_issues:
-        # What the target format cannot render, which only the template and the
-        # fonts on this machine can decide.
-        issues.extend(adapter.coverage_issues(doc, resolved))
 
     destination = output or default_output_path(path)
     if os.path.abspath(destination) == os.path.abspath(path):
@@ -122,6 +114,20 @@ def format_file(
             f"refusing to overwrite the source file {path!r}; "
             "docfix always writes to a separate file"
         )
+
+    # The writer comes from the *output* extension, not the input. Any reader
+    # can feed any writer -- that is what the shared IR is for -- so
+    # `notes.md -> report.pdf` converts rather than writing Markdown into a
+    # file named .pdf, which is what it used to do (BUG-001).
+    writer = adapters.for_path(destination)
+
+    doc = reader.read_path(path)
+    source = reader.source_text(path) if reader.source_text else None
+    issues = run_all(doc, source)
+    if writer.coverage_issues:
+        # What the *target* format cannot render, which only the template and
+        # the fonts on this machine can decide.
+        issues.extend(writer.coverage_issues(doc, resolved))
 
     normalized = normalize(doc)
 
@@ -137,7 +143,7 @@ def format_file(
         with open(intermediate_path, "w", encoding="utf-8") as handle:
             handle.write(_md.write(normalized, resolved))
 
-    adapter.write_path(normalized, resolved, destination)
+    writer.write_path(normalized, resolved, destination)
     return Result(
         source_path=path,
         output_path=destination,
