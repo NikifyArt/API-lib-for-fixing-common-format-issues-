@@ -1,0 +1,126 @@
+# Font licence signatures and the curated family list.
+#
+# Data, not code: recognising a new licence or family means editing this file.
+#
+# Licences are matched against what a font DECLARES ABOUT ITSELF in its name
+# table (name ID 13 = licence text, 14 = licence URL). docfix never asserts a
+# licence from a family name — the font is the source of truth, and a font that
+# declares nothing recognisable is treated as unknown rather than assumed open.
+#
+# `open: true` means the licence permits both redistribution and embedding in a
+# document, so docfix may auto-select the font. Anything else can still be used
+# when the user names it explicitly, but warns.
+#
+# Order matters: the first matching signature wins, so put specific ones first.
+
+licenses:
+  - id: OFL-1.1
+    name: SIL Open Font License 1.1
+    open: true
+    url_patterns: ["scripts.sil.org/ofl", "openfontlicense.org", "sil.org/ofl"]
+    text_patterns: ["sil open font license", "open font license"]
+
+  - id: Bitstream-Vera
+    name: Bitstream Vera Fonts License
+    open: true
+    # Grants use, copy, merge, publish, distribute and sell. DejaVu adds
+    # public-domain changes on top.
+    url_patterns: ["dejavu-fonts.github.io", "dejavu.sourceforge.net"]
+    text_patterns: ["bitstream vera fonts copyright", "bitstream vera"]
+
+  - id: GPL-font-exception
+    name: GPL with font embedding exception
+    open: true
+    # Plain GPL is deliberately NOT matched here. The exception is what makes
+    # embedding safe: it states that putting the font in a document does not
+    # place the document under the GPL. Verified present in GNU FreeFont
+    # ("As a special exception, if you create a document...") and in
+    # WenQuanYi Zen Hei ("GPL2 with font embedding exception").
+    text_patterns:
+      - "font embedding exception"
+      - "as a special exception, if you create a document"
+      - "gnu freefont"
+
+  - id: Apache-2.0
+    name: Apache License 2.0
+    open: true
+    url_patterns: ["apache.org/licenses/license-2.0"]
+    text_patterns: ["apache license"]
+
+  - id: UFL-1.0
+    name: Ubuntu Font Licence 1.0
+    open: true
+    url_patterns: ["font.ubuntu.com/ufl"]
+    text_patterns: ["ubuntu font licence", "ubuntu font license"]
+
+  - id: Public-Domain
+    name: Public domain or CC0
+    open: true
+    url_patterns: ["creativecommons.org/publicdomain"]
+    text_patterns: ["public domain", "cc0 1.0"]
+
+  - id: GPL
+    name: GNU General Public License (no font exception declared)
+    # Deliberately not open for auto-selection: without the font exception it is
+    # unclear whether embedding places the document under the GPL.
+    open: false
+    text_patterns: ["gnu general public license", "gnu lesser general public"]
+
+# Known families, used for categorising the pool and for sensible defaults.
+# A family absent from this list is still usable; its category is inferred.
+families:
+  - {name: "DejaVu Sans", category: sans}
+  - {name: "DejaVu Serif", category: serif}
+  - {name: "DejaVu Sans Mono", category: mono}
+  - {name: "Liberation Sans", category: sans}
+  - {name: "Liberation Serif", category: serif}
+  - {name: "Liberation Mono", category: mono}
+  - {name: "FreeSans", category: sans}
+  - {name: "FreeSerif", category: serif}
+  - {name: "FreeMono", category: mono}
+  - {name: "Bitstream Vera Sans", category: sans}
+  - {name: "Bitstream Vera Serif", category: serif}
+  - {name: "Bitstream Vera Sans Mono", category: mono}
+  - {name: "WenQuanYi Zen Hei", category: sans}
+  - {name: "Noto Sans", category: sans}
+  - {name: "Noto Serif", category: serif}
+  - {name: "Noto Sans Mono", category: mono}
+  - {name: "Inter", category: sans}
+  - {name: "Open Sans", category: sans}
+  - {name: "Lato", category: sans}
+  - {name: "Roboto", category: sans}
+  - {name: "Roboto Mono", category: mono}
+  - {name: "Source Sans 3", category: sans}
+  - {name: "Source Serif 4", category: serif}
+  - {name: "Source Code Pro", category: mono}
+  - {name: "IBM Plex Sans", category: sans}
+  - {name: "IBM Plex Serif", category: serif}
+  - {name: "IBM Plex Mono", category: mono}
+  - {name: "Fira Sans", category: sans}
+  - {name: "Fira Code", category: mono}
+  - {name: "JetBrains Mono", category: mono}
+  - {name: "EB Garamond", category: serif}
+  - {name: "Merriweather", category: serif}
+  - {name: "Nunito", category: sans}
+  - {name: "Ubuntu", category: sans}
+  - {name: "Ubuntu Mono", category: mono}
+  - {name: "Cantarell", category: sans}
+
+# Preferred order when filling coverage gaps. Filtered to what is installed;
+# widest-coverage families first, since that is what a fallback is for.
+fallback:
+  - DejaVu Sans
+  - FreeSerif
+  - FreeSans
+  - Noto Sans
+  - Liberation Sans
+  - DejaVu Serif
+  - Bitstream Vera Sans
+
+# CID collections built into reportlab. No font file, no download; the PDF
+# reader supplies the glyphs, so output is not fully self-contained.
+cid_fonts:
+  japanese: HeiseiKakuGo-W5
+  simplified_chinese: STSong-Light
+  traditional_chinese: MSung-Light
+  korean: HYSMyeongJo-Medium
