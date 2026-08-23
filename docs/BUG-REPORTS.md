@@ -46,6 +46,59 @@ Whether it reproduced, what was tried, anything relevant found while looking.
 
 ## Reports
 
+### BUG-006 — list markers render in base-14 Helvetica, not the document font
+
+- **Date:** 2026-08-23
+- **Status:** fixed
+- **Severity:** wrong output
+- **Found by:** the `verify` gate on the phase 7 push
+
+**What happened**
+
+Every bullet and ordered-list number in a generated PDF was drawn in Helvetica
+at 10pt, while the text of the same list item used the document's font at the
+template's size. reportlab's `ParagraphStyle` defaults `bulletFontName` to
+`Helvetica` and `bulletFontSize` to `10`, independently of `fontName` and
+`fontSize`, and `_styles()` never set either.
+
+**What was expected**
+
+A marker belongs to its item. It should use the same font, at the same size,
+as the text beside it.
+
+**Reproduction**
+
+```bash
+$ printf '# T\n\n1. first\n2. second\n\n- bullet\n' > ord.md
+$ docfix format ord.md -t technical -o ord.pdf --yes
+```
+
+Extracting the characters back, grouped by font:
+
+```
+AAAAAA+NotoSans-Regular: 'Tfirstsecondbullet'
+Helvetica:               '1.2.-'
+```
+
+**Notes**
+
+Two consequences beyond the visible mismatch:
+
+- It defeated phase 7 for lists. Helvetica is a base-14 font and is never
+  embedded, so marker glyphs came from the reader's own substitution — the
+  exact machine-dependence the pinned cache exists to remove. The
+  `reproducible` preset produced a PDF that was not fully reproducible.
+- `font-not-pinned` did not fire for it. The rule reports the families a span
+  resolved to, and the bullet never goes through span resolution, so a user
+  who asked for reproducible output was told everything was fine.
+
+Not a silent-corruption bug: `templates/loader.py` restricts `bullet_marker`
+to `*`, `+`, `-`, all ASCII, so no marker could land outside Helvetica's
+encoding. That validation is what kept this cosmetic rather than destructive.
+
+Fixed by naming `bulletFontName`/`bulletFontSize` on the `item` style. Two
+regression tests: one on the style contract, one measuring the rendered page.
+
 ### BUG-005 — CV rules re-walk the document once per rule
 
 - **Date:** 2026-08-23

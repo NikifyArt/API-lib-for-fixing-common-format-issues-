@@ -64,7 +64,7 @@ docfix/
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / scan / fonts / rules / templates
-tests/                   371 tests, 435 with all extras installed
+tests/                   371 tests, 437 with all extras installed
 ```
 
 ### Things that will bite you
@@ -104,6 +104,13 @@ tests/                   371 tests, 435 with all extras installed
 - **Bullets often do not decode.** Symbol and dingbat fonts frequently lack a
   ToUnicode map, so a bullet arrives as `(cid:127)`. `BULLET_MARKER` matches the
   cid form deliberately; without it the bullets merge into one paragraph.
+- **reportlab styles a bullet separately from its text.** `ParagraphStyle`
+  defaults `bulletFontName` to Helvetica and `bulletFontSize` to 10, ignoring
+  `fontName`/`fontSize`, so every list marker drew in a base-14 face at the
+  wrong size until `_styles` named both. Set them on any new style that passes
+  `bulletText`. It is not only cosmetic: Helvetica is never embedded, so the
+  markers were machine-dependent, and `font-not-pinned` cannot see them —
+  the bullet never goes through span resolution.
 - **`"sans-serif"` contains `"serif"`.** Check sans before serif in `_base_font`
   or every sans stack maps to Times.
 - **The running-header band is 15% of page height**, not 8%. A typical page has
@@ -264,7 +271,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 371 tests (435 with all extras), ~9s
+python -m pytest          # 371 tests (437 with all extras), ~9s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```

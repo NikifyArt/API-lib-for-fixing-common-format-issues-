@@ -946,6 +946,13 @@ def _styles(template: Template, context: FontContext):
             spaceAfter=after / 3,
             leftIndent=16,
             bulletIndent=4,
+            # reportlab defaults bulletFontName to Helvetica and bulletFontSize
+            # to 10, independently of fontName/fontSize. Left alone, every
+            # bullet and list number draws in a base-14 font at the wrong size
+            # while its text uses the document's font -- visibly mismatched,
+            # and not reproducible, since Helvetica is never embedded.
+            bulletFontName=body_font,
+            bulletFontSize=body_size,
             textColor=text_color,
         ),
     }

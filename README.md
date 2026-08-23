@@ -366,7 +366,7 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 ## Development
 
 ```bash
-python -m pytest       # 371 tests, or 435 with all extras
+python -m pytest       # 371 tests, or 437 with all extras
 python -m ruff check . # lint
 ```
 
