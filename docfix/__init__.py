@@ -14,7 +14,7 @@ source is never modified.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from docfix import adapters
 from docfix.detect.rules import Issue, run_all
@@ -65,6 +65,15 @@ def _resolve_template(template: str | Template) -> Template:
     return template if isinstance(template, Template) else load(template)
 
 
+def _with_embedded_cjk(template: Template) -> Template:
+    """A copy of the template that embeds a CJK font rather than relying on CID.
+
+    Copied rather than mutated: presets are shared, and a per-call flag must not
+    leak into the next caller's template.
+    """
+    return replace(template, fonts={**(template.fonts or {}), "embed_cjk": True})
+
+
 def scan(path: str):
     """Inspect a PDF page by page and report what conversion would put at risk.
 
@@ -94,6 +103,7 @@ def format_file(
     template: str | Template = DEFAULT_TEMPLATE,
     output: str | None = None,
     keep_intermediate: str | bool | None = None,
+    embed_cjk: bool = False,
 ) -> Result:
     """Normalize a document and write the result to a new file.
 
@@ -104,13 +114,16 @@ def format_file(
     where extraction is lossy and worth eyeballing -- and hand-editable, so the
     Markdown can be corrected and re-formatted. Pass a path, or True to derive
     one (`report.pdf` -> `report.extracted.md`).
-    """
-    adapter = adapters.for_path(path)
-    resolved = _resolve_template(template)
 
-    doc = adapter.read_path(path)
-    source = adapter.source_text(path) if adapter.source_text else None
-    issues = run_all(doc, source)
+    `embed_cjk` embeds an installed CJK font instead of relying on the reader's
+    own, making the PDF self-contained. Falls back to the built-in CID
+    collections, and reports it, when no suitable open-licensed font is
+    installed -- so asking for it can never make CJK worse.
+    """
+    reader = adapters.for_path(path)
+    resolved = _resolve_template(template)
+    if embed_cjk:
+        resolved = _with_embedded_cjk(resolved)
 
     destination = output or default_output_path(path)
     if os.path.abspath(destination) == os.path.abspath(path):
@@ -118,6 +131,20 @@ def format_file(
             f"refusing to overwrite the source file {path!r}; "
             "docfix always writes to a separate file"
         )
+
+    # The writer comes from the *output* extension, not the input. Any reader
+    # can feed any writer -- that is what the shared IR is for -- so
+    # `notes.md -> report.pdf` converts rather than writing Markdown into a
+    # file named .pdf, which is what it used to do (BUG-001).
+    writer = adapters.for_path(destination)
+
+    doc = reader.read_path(path)
+    source = reader.source_text(path) if reader.source_text else None
+    issues = run_all(doc, source)
+    if writer.coverage_issues:
+        # What the *target* format cannot render, which only the template and
+        # the fonts on this machine can decide.
+        issues.extend(writer.coverage_issues(doc, resolved))
 
     normalized = normalize(doc)
 
@@ -133,7 +160,7 @@ def format_file(
         with open(intermediate_path, "w", encoding="utf-8") as handle:
             handle.write(_md.write(normalized, resolved))
 
-    adapter.write_path(normalized, resolved, destination)
+    writer.write_path(normalized, resolved, destination)
     return Result(
         source_path=path,
         output_path=destination,

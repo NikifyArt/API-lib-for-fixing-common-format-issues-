@@ -10,9 +10,12 @@ markdown:
   wrap_width: 0
 
 fonts:
-  body:    {family: "system-ui, sans-serif", size: 11}
-  heading: {family: "system-ui, sans-serif", size: 14, weight: 600}
-  mono:    {family: "monospace", size: 10}
+  body:    {family: "DejaVu Sans, Liberation Sans, FreeSans, sans-serif", size: 11}
+  heading: {family: "DejaVu Sans, Liberation Sans, FreeSans, sans-serif", size: 14, weight: 600}
+  mono:    {family: "DejaVu Sans Mono, Liberation Mono, FreeMono, monospace", size: 10}
+
+  # Filled in for any character the fonts above cannot render.
+  fallback: ["DejaVu Sans", "FreeSerif", "Liberation Sans"]
 
 spacing:
   line_height: 1.4

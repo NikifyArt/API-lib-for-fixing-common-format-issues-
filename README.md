@@ -24,6 +24,7 @@ docfix check notes.md                      # report problems, write nothing
 docfix format notes.md --template formal   # write notes.formatted.md
 docfix scan report.pdf                     # what would a PDF conversion cost?
 docfix templates                           # list the bundled presets
+docfix fonts                               # which fonts are available, and their licences
 ```
 
 ```python
@@ -131,6 +132,75 @@ What survives extraction: headings (recovered from font size), paragraphs
 lists, and tables. Running headers, footers, and page numbers are stripped.
 What does not: figures, exact layout, and multi-column reading order.
 
+## Fonts and character coverage
+
+Generated PDFs use real fonts from your system, so text outside Latin-1 renders
+correctly. This matters more than it sounds: with only the PDF base-14 fonts,
+`Zażółć gęślą jaźń` comes out as `Zanónn gnnln jann`, `→ ★ ≈ ✓` as `fi H » 3`,
+and Cyrillic or CJK as empty boxes — with no error and no warning.
+
+> **UTF-8 is not the limitation.** UTF-8 already encodes all of Unicode, and
+> `docfix` reads and writes it throughout. The limit is which glyphs the *font*
+> contains — which is what the font pool addresses.
+
+Covered today: Latin and Latin Extended, Cyrillic, Greek, Hebrew, Arabic,
+symbols and arrows, and CJK (Japanese, Chinese simplified and traditional, and
+Korean). Colour emoji is not supported — emoji fonts store bitmaps rather than
+outlines, which the PDF generator cannot render.
+
+Nothing needs configuring. Each template names a stack of families and a
+fallback chain, and every character is set in the first font that can actually
+render it. Anything nothing can render is **reported**, never silently dropped:
+
+```
+$ docfix check notes.md
+  [error] font-coverage (document): 1 character(s) cannot be rendered by any
+          available font and will be missing from the PDF: 🎉
+```
+
+CJK works with no font file at all, using the CID collections built into the
+PDF generator. The reader supplies those glyphs, so such PDFs are not fully
+self-contained — pass `--embed-cjk` when they need to be:
+
+```bash
+docfix format notes.md -o out.pdf --embed-cjk
+```
+
+That embeds an installed, open-licensed CJK font instead, so the file renders
+identically anywhere. It costs roughly 10 KB and needs a suitable font on the
+machine; without one it falls back to the CID collections and says so, so asking
+for it can never make CJK worse.
+
+### Licensing
+
+`docfix` **ships no font files**, so it redistributes nothing. It uses fonts
+already installed on your machine, under two independent rules:
+
+- **A font is never embedded if its own `fsType` forbids it.** That flag lives
+  in the font file and is where a vendor states their embedding terms.
+- **A font is only chosen automatically if it declares a recognised open
+  licence** — OFL, Apache 2.0, the Ubuntu Font Licence, the Bitstream Vera
+  terms, public domain, or GPL *with* the font embedding exception. Plain GPL
+  without that exception is excluded, since it is unclear whether embedding
+  would place your document under the GPL.
+
+Licences are read from what each font declares about itself, not guessed from
+its name, so any correctly-licensed font you install is recognised. A font you
+name explicitly is still used even if its licence is unrecognised — you may own
+it — but it is never picked for you.
+
+```
+$ docfix fonts
+family                     cat    styles licence              auto
+DejaVu Sans                sans   2      Bitstream-Vera       yes
+Liberation Serif           serif  4      OFL-1.1              yes
+FreeSerif                  serif  4      GPL-font-exception   yes
+IPAGothic                  sans   1      unknown              no
+```
+
+`docfix fonts --family "Liberation Serif"` shows full detail, including the
+embedding permission and the file backing each style.
+
 ## How it works
 
 Every format is read into one intermediate representation. Detection, fixing,
@@ -147,17 +217,14 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | --- | --- | --- |
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
 | 2 | PDF: risk scan, extraction, generation | **done** |
-| 3 | DOCX adapter (read + write) | planned |
-| 4 | CV/résumé template layer | planned |
-
-Fonts in generated PDFs are honoured by *category* — serif, sans, or mono —
-rather than by exact face, since embedding arbitrary fonts would mean shipping
-font files. The PDF base-14 render everywhere.
+| 3 | Font pool, script coverage, licence gating | **done** |
+| 4 | DOCX adapter (read + write) | planned |
+| 5 | CV/résumé template layer | planned |
 
 ## Development
 
 ```bash
-python -m pytest       # 155 tests, or 191 with the PDF extras
+python -m pytest       # 202 tests, or 258 with the PDF extras
 python -m ruff check . # lint
 ```
 

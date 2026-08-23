@@ -21,6 +21,9 @@ import re
 import statistics
 from dataclasses import dataclass, field
 
+from docfix.detect.rules import ERROR, INFO, WARNING, Issue
+from docfix.fonts import FontOption, build_chain, pool, resolve_spans
+from docfix.fonts.coverage import base14_option
 from docfix.ir import (
     Block,
     BlockQuote,
@@ -34,7 +37,9 @@ from docfix.ir import (
     Run,
     Table,
     ThematicBreak,
+    iter_runs,
     plain_text,
+    walk,
 )
 from docfix.templates import Template
 
@@ -620,52 +625,157 @@ def read_path(path: str) -> Document:
 # Writing (IR -> PDF)
 # --------------------------------------------------------------------------
 
+XML_ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;"}
+
+# Categories a template's font stack can fall back to when nothing resolves.
 SANS_HINT = re.compile(r"sans", re.IGNORECASE)
 SERIF_HINT = re.compile(r"serif|georgia|times|garamond|book|minion|cambria", re.IGNORECASE)
 MONO_HINT = re.compile(r"mono|courier|consol|menlo", re.IGNORECASE)
 
-XML_ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;"}
 
-
-def _base_font(family: str) -> str:
-    """Map a CSS-style font stack onto one of the PDF base-14 families.
-
-    Embedding arbitrary fonts would mean shipping font files. The base-14 are
-    guaranteed present in every PDF reader, so a template's family is honoured
-    by *category* -- serif, sans, or mono -- rather than by exact face.
-    """
+def _category(family: str) -> str:
+    """Which base-14 category a font stack resembles, for the last-resort path."""
     family = family or ""
     if MONO_HINT.search(family):
-        return "Courier"
+        return "mono"
     # "sans-serif" contains "serif", so sans has to be ruled out first.
     if SANS_HINT.search(family):
-        return "Helvetica"
+        return "sans"
     if SERIF_HINT.search(family):
-        return "Times-Roman"
-    return "Helvetica"
+        return "serif"
+    return "sans"
+
+
+def _stack(value: str) -> list[str]:
+    """Split a CSS-style font stack into candidate family names."""
+    return [part.strip().strip("'\"").strip() for part in (value or "").split(",") if part.strip()]
+
+
+@dataclass
+class FontContext:
+    """The fonts one write will use, and what went wrong assembling them."""
+
+    body: list[FontOption] = field(default_factory=list)
+    heading: list[FontOption] = field(default_factory=list)
+    mono: list[FontOption] = field(default_factory=list)
+    # Characters no font in any chain could render.
+    missing: set[str] = field(default_factory=set)
+    # Families a template asked for that this machine does not have.
+    unavailable: list[str] = field(default_factory=list)
+    # Families used without the exact weight or slant requested.
+    degraded: set[str] = field(default_factory=set)
+    # Set when embedding a CJK font was requested but none is installed.
+    embed_cjk_unavailable: bool = False
+
+    def primary(self, role: str) -> str:
+        chain = getattr(self, role) or self.body
+        return chain[0].name if chain else "Helvetica"
+
+
+def _role_chain(available, spec: dict, fallback: list[str], cid: str | None,
+                context: FontContext, embed_cjk: bool = False) -> list[FontOption]:
+    families = _stack(spec.get("family", ""))
+    chain, unresolved = build_chain(
+        available, families, fallback, cid, available.catalog.cid_fonts, embed_cjk
+    )
+
+    if not chain:
+        context.unavailable.extend(families or ["(none specified)"])
+        return [base14_option(_category(spec.get("family", "")))]
+
+    # A font stack is a list of alternatives, so a missing entry is only worth
+    # reporting when *none* of them resolved and the chain fell through to the
+    # catalogue's own fallbacks. Reporting every absent alternative would flag
+    # "Georgia, Times New Roman, serif" three times on a machine that has none
+    # of them but renders the document perfectly well in Liberation Serif.
+    if families and all(name in unresolved for name in families):
+        context.unavailable.extend(families)
+    return chain
+
+
+def build_font_context(template: Template) -> FontContext:
+    """Resolve a template's fonts against the pool available on this machine.
+
+    Never raises: with no usable fonts it falls back to the base-14, whose
+    coverage is capped at Latin-1 so anything beyond gets reported instead of
+    silently mis-rendered.
+    """
+    context = FontContext()
+    fonts = template.fonts or {}
+    fallback = [str(name) for name in (fonts.get("fallback") or [])]
+    cid = fonts.get("cjk") or None
+    embed_cjk = bool(fonts.get("embed_cjk"))
+
+    try:
+        available = pool()
+    except Exception:  # noqa: BLE001 - a font-discovery failure must not stop a write
+        available = None
+
+    for role in ("body", "heading", "mono"):
+        spec = fonts.get(role) or {}
+        if available is None or not available.families:
+            chain = [base14_option(_category(spec.get("family", "")))]
+        else:
+            chain = _role_chain(available, spec, fallback, cid, context, embed_cjk)
+        setattr(context, role, chain)
+
+    if embed_cjk and available is not None:
+        from docfix.fonts.coverage import embeddable_cjk
+
+        context.embed_cjk_unavailable = not embeddable_cjk(available)
+
+    # Deduplicate while keeping the order the template implied.
+    context.unavailable = list(dict.fromkeys(context.unavailable))
+    return context
 
 
 def _escape(text: str) -> str:
     return "".join(XML_ESCAPES.get(char, char) for char in text)
 
 
-def _markup(runs: list[Run]) -> str:
-    """Render runs as the limited inline markup reportlab understands."""
+def _span_markup(text: str, chain: list[FontOption], context: FontContext,
+                 bold: bool = False, italic: bool = False) -> str:
+    """Escape text and wrap each span in the font that can actually render it."""
+    spans, missing = resolve_spans(text, chain)
+    context.missing |= missing
+
     parts: list[str] = []
+    for chunk, option in spans:
+        escaped = _escape(chunk)
+        if option.use_tags:
+            # base-14: reportlab maps <b>/<i> to a built-in face itself.
+            if bold:
+                escaped = f"<b>{escaped}</b>"
+            if italic:
+                escaped = f"<i>{escaped}</i>"
+            parts.append(f'<font face="{option.name}">{escaped}</font>')
+            continue
+
+        face, exact = option.name_for(bold, italic)
+        if not exact:
+            context.degraded.add(option.family)
+        parts.append(f'<font face="{face}">{escaped}</font>')
+    return "".join(parts)
+
+
+def _markup(runs: list[Run], context: FontContext, role: str = "body") -> str:
+    """Render runs as the limited inline markup reportlab understands."""
+    chain = getattr(context, role) or context.body
+    parts: list[str] = []
+
     for run in runs:
         if run.raw:
             # Raw runs carry Markdown syntax (inline images); show the alt text.
             match = re.match(r"!\[(.*?)\]\((.*?)\)", run.text)
-            parts.append(_escape(match.group(1) or match.group(2)) if match else _escape(run.text))
+            shown = (match.group(1) or match.group(2)) if match else run.text
+            parts.append(_span_markup(shown, chain, context))
             continue
 
-        text = _escape(run.text)
         if run.code:
-            text = f'<font face="Courier">{text}</font>'
-        if run.bold:
-            text = f"<b>{text}</b>"
-        if run.italic:
-            text = f"<i>{text}</i>"
+            text = _span_markup(run.text, context.mono or chain, context, run.bold, run.italic)
+        else:
+            text = _span_markup(run.text, chain, context, run.bold, run.italic)
+
         if run.strike:
             text = f"<strike>{text}</strike>"
         if run.link:
@@ -674,7 +784,60 @@ def _markup(runs: list[Run]) -> str:
     return "".join(parts)
 
 
-def _styles(template: Template):
+def coverage_issues(doc: Document, template: Template) -> list[Issue]:
+    """Report what this machine's fonts cannot render for this template.
+
+    Runs the same resolution the writer will, so the report matches the output.
+    """
+    context = build_font_context(template)
+    for block in walk(doc):
+        for run in iter_runs(block):
+            _markup([run], context, "body")
+
+    issues: list[Issue] = []
+    if context.missing:
+        shown = "".join(sorted(context.missing)[:20])
+        issues.append(
+            Issue(
+                "font-coverage",
+                f"{len(context.missing)} character(s) cannot be rendered by any "
+                f"available font and will be missing from the PDF: {shown}",
+                ERROR,
+            )
+        )
+    if context.unavailable:
+        issues.append(
+            Issue(
+                "font-unavailable",
+                "none of the template's fonts are installed here ("
+                + ", ".join(context.unavailable)
+                + "); a substitute is used, so the output will not look as intended",
+                WARNING,
+            )
+        )
+    if context.embed_cjk_unavailable:
+        issues.append(
+            Issue(
+                "font-embed-cjk-unavailable",
+                "embedding a CJK font was requested but no installed font with an "
+                "open licence covers CJK; falling back to the built-in CID "
+                "collections, so the PDF will rely on the reader's own fonts",
+                WARNING,
+            )
+        )
+    if context.degraded:
+        issues.append(
+            Issue(
+                "font-style-missing",
+                "no bold or italic face for: " + ", ".join(sorted(context.degraded))
+                + "; the regular face is used instead",
+                INFO,
+            )
+        )
+    return issues
+
+
+def _styles(template: Template, context: FontContext):
     """Build the reportlab paragraph styles a template describes."""
     _require("reportlab")
     from reportlab.lib import colors
@@ -684,9 +847,9 @@ def _styles(template: Template):
     spacing = template.spacing or {}
     palette = template.colors or {}
 
-    body_font = _base_font((fonts.get("body") or {}).get("family", ""))
-    head_font = _base_font((fonts.get("heading") or {}).get("family", ""))
-    mono_font = _base_font((fonts.get("mono") or {}).get("family", "monospace"))
+    body_font = context.primary("body")
+    head_font = context.primary("heading")
+    mono_font = context.primary("mono")
 
     body_size = float((fonts.get("body") or {}).get("size", 11))
     head_size = float((fonts.get("heading") or {}).get("size", 16))
@@ -761,7 +924,7 @@ def _styles(template: Template):
     return built
 
 
-def _flowables(blocks: list[Block], styles, template: Template) -> list:
+def _flowables(blocks: list[Block], styles, template: Template, context: FontContext) -> list:
     from reportlab.lib import colors
     from reportlab.platypus import HRFlowable, Preformatted, Spacer, TableStyle
     from reportlab.platypus import Image as RLImage
@@ -774,30 +937,30 @@ def _flowables(blocks: list[Block], styles, template: Template) -> list:
     for block in blocks:
         if isinstance(block, Heading):
             level = max(1, min(6, block.level))
-            out.append(RLParagraph(_markup(block.runs), styles[f"h{level}"]))
+            out.append(RLParagraph(_markup(block.runs, context, "heading"), styles[f"h{level}"]))
 
         elif isinstance(block, Paragraph):
-            out.append(RLParagraph(_markup(block.runs), styles["body"]))
+            out.append(RLParagraph(_markup(block.runs, context, "body"), styles["body"]))
 
         elif isinstance(block, ListBlock):
             for index, item in enumerate(block.items):
                 marker = f"{block.start + index}." if block.ordered else bullet
                 out.append(
-                    RLParagraph(_markup(item.runs), styles["item"], bulletText=marker)
+                    RLParagraph(_markup(item.runs, context), styles["item"], bulletText=marker)
                 )
                 if item.blocks:
-                    out.extend(_flowables(item.blocks, styles, template))
+                    out.extend(_flowables(item.blocks, styles, template, context))
             out.append(Spacer(1, 4))
 
         elif isinstance(block, CodeBlock):
             out.append(Preformatted(block.code, styles["code"]))
 
         elif isinstance(block, BlockQuote):
-            out.extend(_flowables(block.blocks, styles, template))
+            out.extend(_flowables(block.blocks, styles, template, context))
 
         elif isinstance(block, Table):
-            data = [[_markup(cell) for cell in block.header]] if block.header else []
-            data += [[_markup(cell) for cell in row] for row in block.rows]
+            data = [[_markup(cell, context) for cell in block.header]] if block.header else []
+            data += [[_markup(cell, context) for cell in row] for row in block.rows]
             if not data:
                 continue
             wrapped = [[RLParagraph(cell, styles["body"]) for cell in row] for row in data]
@@ -821,7 +984,7 @@ def _flowables(blocks: list[Block], styles, template: Template) -> list:
                 try:
                     out.append(RLImage(block.src, width=380, height=None, kind="proportional"))
                 except Exception:  # noqa: BLE001 - an unreadable image is not fatal
-                    out.append(RLParagraph(_markup([Run(f"[image: {block.alt or block.src}]")]),
+                    out.append(RLParagraph(_markup([Run(f"[image: {block.alt or block.src}]")], context),
                                            styles["quote"]))
             else:
                 label = block.alt or block.src or "image"
@@ -842,8 +1005,9 @@ def write_path(doc: Document, template: Template, path: str) -> None:
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate
 
-    styles = _styles(template)
-    story = _flowables(doc.blocks, styles, template)
+    context = build_font_context(template)
+    styles = _styles(template, context)
+    story = _flowables(doc.blocks, styles, template, context)
 
     document = SimpleDocTemplate(
         path,

@@ -67,6 +67,45 @@ def _validate(style: MarkdownStyle, name: str) -> None:
         )
 
 
+VALID_FONT_ROLES = {"body", "heading", "mono", "fallback", "cjk", "embed_cjk"}
+
+
+def _validate_fonts(fonts: dict, name: str) -> None:
+    """Check the font block's shape; family names are resolved at write time."""
+    if not isinstance(fonts, dict):
+        raise TemplateError(f"template {name!r}: 'fonts' must be a mapping")
+
+    unknown = set(fonts) - VALID_FONT_ROLES
+    if unknown:
+        raise TemplateError(
+            f"template {name!r}: unknown font keys {sorted(unknown)}; "
+            f"valid keys are {sorted(VALID_FONT_ROLES)}"
+        )
+
+    fallback = fonts.get("fallback")
+    if fallback is not None and (
+        not isinstance(fallback, list) or not all(isinstance(f, str) for f in fallback)
+    ):
+        raise TemplateError(
+            f"template {name!r}: 'fonts.fallback' must be a list of family names"
+        )
+
+    cjk = fonts.get("cjk")
+    if cjk is not None and not isinstance(cjk, str):
+        raise TemplateError(f"template {name!r}: 'fonts.cjk' must be a font name")
+
+    embed = fonts.get("embed_cjk")
+    if embed is not None and not isinstance(embed, bool):
+        raise TemplateError(f"template {name!r}: 'fonts.embed_cjk' must be true or false")
+
+    for role in ("body", "heading", "mono"):
+        spec = fonts.get(role)
+        if spec is not None and not isinstance(spec, dict):
+            raise TemplateError(
+                f"template {name!r}: 'fonts.{role}' must be a mapping with a 'family'"
+            )
+
+
 def from_dict(data: dict, name: str | None = None) -> Template:
     if not isinstance(data, dict):
         raise TemplateError(f"template {name!r}: expected a mapping at the top level")
@@ -90,11 +129,14 @@ def from_dict(data: dict, name: str | None = None) -> Template:
     style = MarkdownStyle(**md_data)
     _validate(style, resolved)
 
+    fonts = data.get("fonts") or {}
+    _validate_fonts(fonts, resolved)
+
     return Template(
         name=resolved,
         description=data.get("description", ""),
         markdown=style,
-        fonts=data.get("fonts") or {},
+        fonts=fonts,
         spacing=data.get("spacing") or {},
         colors=data.get("colors") or {},
     )

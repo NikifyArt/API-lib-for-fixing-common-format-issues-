@@ -10,9 +10,12 @@ markdown:
   wrap_width: 0
 
 fonts:
-  body:    {family: "Georgia, 'Times New Roman', serif", size: 11}
-  heading: {family: "Georgia, 'Times New Roman', serif", size: 16, weight: 700}
-  mono:    {family: "'SF Mono', Menlo, Consolas, monospace", size: 10}
+  body:    {family: "Georgia, EB Garamond, Liberation Serif, DejaVu Serif, serif", size: 11}
+  heading: {family: "Georgia, EB Garamond, Liberation Serif, DejaVu Serif, serif", size: 16, weight: 700}
+  mono:    {family: "JetBrains Mono, Liberation Mono, DejaVu Sans Mono, monospace", size: 10}
+
+  # Filled in for any character the fonts above cannot render.
+  fallback: ["DejaVu Sans", "FreeSerif", "Liberation Sans"]
 
 spacing:
   line_height: 1.5

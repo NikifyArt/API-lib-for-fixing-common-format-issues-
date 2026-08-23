@@ -47,12 +47,18 @@ docfix/
     presets/*.yaml       formal, friendly, technical, minimal
   detect/rules.py        STRUCTURE_RULES (on the IR) + SOURCE_RULES (on raw text)
   fix/normalize.py       safe repairs only
+  fonts/
+    sfnt.py              standalone TTF reader: fsType, cmap, names, outline kind
+    catalog.yaml         licence signatures + known families (DATA)
+    discover.py          find font files; group faces into families
+    registry.py          pool assembly, licence gate, reportlab registration
+    coverage.py          per-span font choice; unrenderable reporting
   adapters/
     __init__.py          Adapter registry; for_path() dispatches on extension
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
   cli.py                 format / check / templates
-tests/                   155 tests, 191 with the PDF extras installed
+tests/                   202 tests, 258 with the PDF extras installed
 ```
 
 ### Things that will bite you
@@ -99,19 +105,73 @@ tests/                   155 tests, 191 with the PDF extras installed
   catches nothing.
 - **PDF passes `source=None`**, so source-level rules are skipped — there is no
   raw text to scan.
-- **Fonts map by category, not face.** serif/sans/mono onto the PDF base-14.
-  Embedding real faces would mean shipping font files.
+- **Fonts come from the pool, not the base-14.** See the font section below.
 - **`_require` catches `BaseException`, not `ImportError`.** A broken native
   dependency surfaces as a pyo3 panic, and a raw Rust traceback tells the user
   nothing about what to install. `tests/test_pdf.py` skips on the same basis —
   `pytest.importorskip` does not catch a panic and collection would fail.
+
+### Fonts
+
+The base-14 fonts **silently corrupt** anything outside Latin-1 — `Zażółć`
+became `Zanónn`, `→ ★ ≈ ✓` became `fi H » 3` — with no exception and no
+warning. The font pool exists to fix that, and these are the traps in it:
+
+- **reportlab performs no font fallback.** A missing glyph emits `\x00`
+  silently. That is why text is split into spans and each span names a font
+  that actually covers it. Never assume a single `fontName` is enough.
+- **Segment by coverage, not by script.** Python exposes no Unicode Script
+  property; asking each font's cmap what it covers is correct by construction
+  and needs no range tables. The one exception is CID fonts, which have no file
+  to read, so `SCRIPT_RANGES` describes them by block.
+- **A `<font face>` tag overrides the family mapping**, so a span inside `<b>`
+  loses its weight. `_span_markup` names the *bold face itself* via
+  `FontOption.name_for()`. The base-14 path is the exception — there reportlab
+  maps `<b>` itself, which is what `FontOption.use_tags` marks.
+- **`loadable` requires `glyf` *and* `loca`**, not just a TrueType signature.
+  Colour emoji fonts have the signature but store bitmaps; reportlab fails on
+  them with "missing location table".
+- **`--embed-cjk` swaps CID for a real font.** The default relies on the
+  reader's own glyphs; the flag embeds an installed open-licensed CJK font
+  ahead of the CID entries in the chain, so it wins. It never relaxes the
+  licence gate, and falls back to CID (reporting
+  `font-embed-cjk-unavailable`) when nothing qualifies. The flag is carried on
+  a *copy* of the template — presets are shared objects and must not be
+  mutated per call.
+- **No single CID collection covers CJK.** Measured by rendering and extracting
+  back: `HeiseiKakuGo-W5` covers Han (simplified and traditional) and kana but
+  **not Hangul**; `HYSMyeongJo-Medium` covers Hangul but not simplified
+  Chinese. Both are in the chain by default. `MSung-Light` did not survive a
+  round trip and is deliberately unused.
+- **A font stack is a list of alternatives.** Only report `font-unavailable`
+  when *none* of a stack's families resolved — otherwise every machine without
+  Georgia gets a warning about a document that renders fine.
+- **`fsType` is parsed by `sfnt.py`, not reportlab.** reportlab does not expose
+  it, and the gate must work on files reportlab refuses to load.
+
+### Licensing rules — do not weaken these
+
+`docfix` ships no fonts, so it redistributes nothing. Two separate checks:
+
+1. **`fsType`** decides whether a font may be embedded *at all*. Restricted
+   License Embedding is refused for everyone, including fonts the user names
+   explicitly. An open licence does not override it.
+2. **The catalogue** decides whether a font may be chosen *automatically*. Only
+   a recognised open licence qualifies.
+
+Licences are read from what the font declares (name IDs 13/14), never inferred
+from a family name — there is a test asserting an impostor named
+"Liberation Sans" that declares nothing stays `unknown`. Plain GPL without the
+font embedding exception is `open: false` deliberately. Adding a licence means
+adding a signature to `catalog.yaml`, and its terms must be **verified against
+the font's own distribution**, never asserted from memory.
 
 ## Commands
 
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,pdf]"   # adds pdfplumber + reportlab
-python -m pytest          # 155 tests (191 with PDF extras), ~3s
+python -m pytest          # 202 tests (258 with PDF extras), ~4s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -137,8 +197,9 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | --- | --- | --- |
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
 | 2 | PDF: risk scan, extraction, generation | **done** |
-| 3 | DOCX adapter (read + write) | planned |
-| 4 | CV/résumé template layer | planned |
+| 3 | Font pool, script coverage, licence gating | **done** |
+| 4 | DOCX adapter (read + write) | planned |
+| 5 | CV/résumé template layer | planned |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
 `source_text` if the format is text), register it in `adapters/__init__.py`, and

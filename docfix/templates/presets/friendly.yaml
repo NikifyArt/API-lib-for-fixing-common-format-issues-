@@ -10,9 +10,12 @@ markdown:
   wrap_width: 0
 
 fonts:
-  body:    {family: "'Nunito', 'Segoe UI', system-ui, sans-serif", size: 11}
-  heading: {family: "'Nunito', 'Segoe UI', system-ui, sans-serif", size: 17, weight: 700}
-  mono:    {family: "'Fira Code', Menlo, monospace", size: 10}
+  body:    {family: "Nunito, Open Sans, DejaVu Sans, Liberation Sans, sans-serif", size: 11}
+  heading: {family: "Nunito, Open Sans, DejaVu Sans, Liberation Sans, sans-serif", size: 17, weight: 700}
+  mono:    {family: "Fira Code, DejaVu Sans Mono, Liberation Mono, monospace", size: 10}
+
+  # Filled in for any character the fonts above cannot render.
+  fallback: ["DejaVu Sans", "FreeSerif", "Liberation Sans"]
 
 spacing:
   line_height: 1.65

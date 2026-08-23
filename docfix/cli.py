@@ -117,6 +117,7 @@ def cmd_format(args) -> int:
         template=args.template,
         output=args.output,
         keep_intermediate=args.keep_intermediate,
+        embed_cjk=args.embed_cjk,
     )
     print(f"{result.source_path} -> {result.output_path}  [template: {result.template}]")
     if result.intermediate_path:
@@ -134,6 +135,58 @@ def cmd_check(args) -> int:
     if issues:
         _print_issues(issues, sys.stdout)
         return EXIT_ISSUES
+    return EXIT_OK
+
+
+def cmd_fonts(args) -> int:
+    """Show the font pool: what is installed, what may be used, and why."""
+    from docfix.fonts import describe_fs_type, pool
+
+    available = pool()
+
+    if args.family:
+        family = available.get(args.family)
+        if family is None:
+            print(f"docfix: no font family named {args.family!r}", file=sys.stderr)
+            return EXIT_ERROR
+        face = family.regular
+        print(f"{family.name}")
+        print(f"  category    {family.category}")
+        print(f"  styles      {', '.join(family.styles)}")
+        print(f"  licence     {family.license.name} ({family.license.id})")
+        print(f"  embedding   {describe_fs_type(face.fs_type if face else None)}")
+        print(f"  usable      {family.usable}")
+        print(f"  auto-select {family.auto_selectable}")
+        print(f"  glyphs      {len(family.coverage())}")
+        for style in family.styles:
+            print(f"  {style:11} {family.faces[style].path}")
+        return EXIT_OK
+
+    families = available.usable_families()
+    if not families:
+        print("No usable fonts found. docfix will fall back to the PDF base-14,")
+        print("which covers Latin-1 only; anything beyond it will be reported.")
+        return EXIT_OK
+
+    print(f"{'family':26} {'cat':6} {'styles':4} {'licence':20} auto")
+    for family in families:
+        print(
+            f"{family.name:26} {family.category:6} {len(family.styles):<4} "
+            f"{family.license.id:20} {'yes' if family.auto_selectable else 'no'}"
+        )
+
+    auto = sum(1 for f in families if f.auto_selectable)
+    print(f"\n{len(families)} usable, {auto} auto-selectable (open licence).")
+    if auto < len(families):
+        print(
+            "Fonts without a recognised open licence are never chosen automatically; "
+            "name one explicitly to use it."
+        )
+    if available.skipped:
+        print(f"{len(available.skipped)} file(s) skipped -- use --skipped to see why.")
+    if args.skipped:
+        for path, reason in available.skipped:
+            print(f"  {os.path.basename(path):34} {reason}")
     return EXIT_OK
 
 
@@ -176,6 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="accept a lossy PDF conversion without being asked",
     )
     fmt.add_argument(
+        "--embed-cjk",
+        action="store_true",
+        help="embed an installed CJK font instead of relying on the reader's own, "
+        "making the PDF self-contained (falls back to the built-in CID fonts)",
+    )
+    fmt.add_argument(
         "--keep-intermediate",
         nargs="?",
         const=True,
@@ -204,6 +263,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="how many risky pages to list individually (default: 12)",
     )
     scan.set_defaults(func=cmd_scan)
+
+    fonts = subparsers.add_parser(
+        "fonts", help="list the fonts available for PDF output, with their licences"
+    )
+    fonts.add_argument(
+        "--family", default=None, help="show full detail for one family"
+    )
+    fonts.add_argument(
+        "--skipped", action="store_true", help="also list font files that cannot be used"
+    )
+    fonts.set_defaults(func=cmd_fonts)
 
     templates = subparsers.add_parser("templates", help="list the bundled templates")
     templates.set_defaults(func=cmd_templates)
