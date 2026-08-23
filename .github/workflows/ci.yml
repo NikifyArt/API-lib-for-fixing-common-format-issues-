@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Feature work happens on claude/* branches, often without a PR open yet.
+    # Without them here, nothing would run until a PR existed.
+    branches: [main, "claude/**"]
   pull_request:
   workflow_dispatch:
 
