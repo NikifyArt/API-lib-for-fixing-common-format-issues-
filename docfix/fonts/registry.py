@@ -116,6 +116,9 @@ class Family:
     category: str
     license: License
     faces: dict[str, sfnt.FontInfo] = field(default_factory=dict)
+    # True when this family was resolved from the pinned cache rather than
+    # from whatever the machine happens to have installed.
+    pinned: bool = False
     _coverage: set[int] | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -198,6 +201,12 @@ class Pool:
         # when several qualify.
         return sorted(found, key=lambda f: -len(f.coverage()))
 
+    def pinned_families(self) -> list[Family]:
+        return [f for f in self.usable_families() if f.pinned]
+
+    def unpinned_families(self) -> list[Family]:
+        return [f for f in self.usable_families() if not f.pinned]
+
     def fallback_families(self) -> list[Family]:
         """Catalogue-preferred fallbacks that are actually installed and open."""
         out: list[Family] = []
@@ -246,12 +255,20 @@ def _split_stack(stack: str) -> list[str]:
     return parts
 
 
-def build_pool(extra_dirs: list[str] | None = None, catalog: Catalog | None = None) -> Pool:
-    """Assemble the pool from whatever fonts this machine has."""
+def build_pool(
+    extra_dirs: list[str] | None = None,
+    catalog: Catalog | None = None,
+    use_cache: bool = True,
+) -> Pool:
+    """Assemble the pool from the pinned cache plus whatever the machine has."""
     catalog = catalog or load_catalog()
     pool = Pool(catalog=catalog)
 
-    for info in discover.scan(extra_dirs):
+    from docfix.fonts.cache import cache_dir
+
+    cache_root = os.path.realpath(cache_dir()) if use_cache else None
+
+    for info in discover.scan(extra_dirs, use_cache=use_cache):
         if not info.loadable:
             pool.skipped.append((info.path, f"{info.outlines} outlines cannot be rendered"))
             continue
@@ -261,6 +278,10 @@ def build_pool(extra_dirs: list[str] | None = None, catalog: Catalog | None = No
             )
             continue
 
+        from_cache = bool(
+            cache_root and os.path.realpath(info.path).startswith(cache_root)
+        )
+
         key = info.family.lower().strip()
         family = pool.families.get(key)
         if family is None:
@@ -268,6 +289,7 @@ def build_pool(extra_dirs: list[str] | None = None, catalog: Catalog | None = No
                 name=info.family,
                 category=catalog.category_for(info.family),
                 license=catalog.classify(info),
+                pinned=from_cache,
             )
             pool.families[key] = family
         # Keep the first face seen for a style; directories are walked in order.
@@ -360,6 +382,19 @@ def register_cid(name: str) -> str:
 
     _REGISTERED[name] = name
     return name
+
+
+def reset_pool() -> None:
+    """Forget the assembled pool, so the next call rebuilds it.
+
+    Installing or removing pinned fonts changes what is available, and the pool
+    is memoised for the life of the process -- without this a library caller
+    that installs fonts and then formats a document would still see the old set.
+    """
+    global _POOL
+    with _LOCK:
+        _POOL = None
+    reset_registrations()
 
 
 def reset_registrations() -> None:

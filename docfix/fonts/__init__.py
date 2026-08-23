@@ -24,6 +24,7 @@ from docfix.fonts.registry import (
     pool,
     register,
     register_cid,
+    reset_pool,
     reset_registrations,
 )
 from docfix.fonts.sfnt import FontFileError, FontInfo, describe_fs_type
@@ -44,6 +45,7 @@ __all__ = [
     "pool",
     "register",
     "register_cid",
+    "reset_pool",
     "reset_registrations",
     "resolve_spans",
 ]

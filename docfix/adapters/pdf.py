@@ -664,12 +664,27 @@ class FontContext:
     unavailable: list[str] = field(default_factory=list)
     # Families used without the exact weight or slant requested.
     degraded: set[str] = field(default_factory=set)
+    # Families available in a chain that did not come from the pinned cache.
+    unpinned: set[str] = field(default_factory=set)
+    # Families a span was actually set in. A fallback that never rendered
+    # anything does not make the output machine-dependent.
+    used: set[str] = field(default_factory=set)
     # Set when embedding a CJK font was requested but none is installed.
     embed_cjk_unavailable: bool = False
 
     def primary(self, role: str) -> str:
         chain = getattr(self, role) or self.body
         return chain[0].name if chain else "Helvetica"
+
+
+def _record_pinning(available, chain: list[FontOption], context: FontContext) -> None:
+    """Note any family that came from the machine rather than the pinned set."""
+    for option in chain:
+        if option.is_cid or option.use_tags:
+            continue
+        family = available.get(option.family)
+        if family is not None and not family.pinned:
+            context.unpinned.add(family.name)
 
 
 def _role_chain(available, spec: dict, fallback: list[str], cid: str | None,
@@ -717,6 +732,7 @@ def build_font_context(template: Template) -> FontContext:
             chain = [base14_option(_category(spec.get("family", "")))]
         else:
             chain = _role_chain(available, spec, fallback, cid, context, embed_cjk)
+            _record_pinning(available, chain, context)
         setattr(context, role, chain)
 
     if embed_cjk and available is not None:
@@ -741,6 +757,8 @@ def _span_markup(text: str, chain: list[FontOption], context: FontContext,
 
     parts: list[str] = []
     for chunk, option in spans:
+        if not option.is_cid and not option.use_tags:
+            context.used.add(option.family)
         escaped = _escape(chunk)
         if option.use_tags:
             # base-14: reportlab maps <b>/<i> to a built-in face itself.
@@ -791,6 +809,7 @@ COVERAGE_RULE_IDS = (
     ("font-unavailable", "None of the template's fonts are installed here."),
     ("font-embed-cjk-unavailable", "--embed-cjk asked for, no suitable font installed."),
     ("font-style-missing", "A family with no bold or italic face."),
+    ("font-not-pinned", "Output used a font that is not from the pinned set."),
 )
 
 
@@ -833,6 +852,18 @@ def coverage_issues(doc: Document, template: Template) -> list[Issue]:
                 "open licence covers CJK; falling back to the built-in CID "
                 "collections, so the PDF will rely on the reader's own fonts",
                 WARNING,
+            )
+        )
+    machine_fonts = context.unpinned & context.used
+    if machine_fonts:
+        issues.append(
+            Issue(
+                "font-not-pinned",
+                "output used font(s) installed on this machine rather than the "
+                "pinned set, so it may render differently elsewhere: "
+                + ", ".join(sorted(machine_fonts))
+                + "; run `docfix fonts install` for reproducible output",
+                INFO,
             )
         )
     if context.degraded:

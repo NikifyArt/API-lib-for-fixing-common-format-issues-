@@ -41,6 +41,15 @@ jobs:
       - name: Install
         run: pip install -e ".[${{ matrix.extras }}]"
 
+      # Exercises the pinned-font path, and proves the manifest's checksums
+      # still match what the URLs serve. Non-fatal: a network blip must not
+      # turn the whole matrix red, and every test that needs the cache skips
+      # without it.
+      - name: Install pinned fonts
+        if: contains(matrix.extras, 'pdf') || contains(matrix.extras, 'all')
+        continue-on-error: true
+        run: python -m docfix.cli fonts install
+
       - name: Test
         run: python -m pytest -v
 
@@ -123,6 +132,9 @@ jobs:
           cache: pip
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
       - run: pip install -e ".[dev,pdf]"
+      - name: Install pinned fonts
+        continue-on-error: true
+        run: python -m docfix.cli fonts install
 
       # The promises the project makes, checked end to end through the CLI
       # rather than through the unit tests that also cover them.
@@ -142,6 +154,21 @@ jobs:
             echo "writing over the source was allowed"; exit 1
           fi
           echo "invariants hold"
+
+      - name: Pinned fonts give reproducible output
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docfix fonts --reproducible
+          printf '# T\n\nZa\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 / \xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82\n' > repro.md
+          docfix format repro.md -o repro.pdf -t reproducible -q
+          python -c "
+          import pdfplumber
+          with pdfplumber.open('repro.pdf') as pdf:
+              text = pdf.pages[0].extract_text()
+          assert 'Zażółć' in text and 'Привет' in text, text
+          print('pinned output renders correctly')
+          "
 
       - name: Non-Latin text survives PDF generation
         run: |

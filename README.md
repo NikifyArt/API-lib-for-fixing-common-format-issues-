@@ -31,6 +31,7 @@ docfix format docs/ --diff                 # what would change, without writing
 docfix check resume.md --cv                # also apply the résumé conventions
 docfix rules                               # every rule, and what your config does
 docfix fonts                               # which fonts are available, and their licences
+docfix fonts install                       # pinned fonts, for identical output anywhere
 ```
 
 ```python
@@ -277,6 +278,39 @@ identically anywhere. It costs roughly 10 KB and needs a suitable font on the
 machine; without one it falls back to the CID collections and says so, so asking
 for it can never make CJK worse.
 
+### Reproducible output
+
+By default `docfix` uses whatever fonts a machine has, so the same CV can
+render differently on a laptop and in CI. `docfix fonts install` fixes that:
+
+```bash
+docfix fonts install                       # ~6 MB, once
+docfix format cv.md -o cv.pdf -t reproducible
+```
+
+It downloads a small pinned set — Lato, IBM Plex Serif, IBM Plex Mono and Noto
+Sans, all SIL OFL — into a cache the font pool searches *before* the system,
+so those families always win. Every URL pins a **commit SHA**, and every file
+is checked against a SHA-256 recorded in `docfix/fonts/pinned.yaml`; a mismatch
+is a hard failure and the file is discarded. The licence text is stored beside
+each font.
+
+The repository still ships no font binaries — only the manifest.
+
+The `reproducible` preset names only pinned families. Any template that names
+something else still works, and `docfix` tells you when output depended on a
+machine-specific font:
+
+```
+[info] font-not-pinned (document): output used font(s) installed on this
+       machine rather than the pinned set, so it may render differently
+       elsewhere: Liberation Serif; run `docfix fonts install`
+```
+
+`docfix fonts --reproducible` reports whether the pinned set is present and
+exits 1 if not, so it works as a CI gate. `docfix fonts install --check`
+verifies an existing cache without downloading.
+
 ### Licensing
 
 `docfix` **ships no font files**, so it redistributes nothing. It uses fonts
@@ -327,12 +361,12 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | 4 | DOCX adapter (read + write) | **done** |
 | 5 | CV/résumé template layer | **done** |
 | 6 | Config file, rule control, batch, `--diff` | **done** |
-| 7 | Reproducible font output | planned |
+| 7 | Reproducible font output | **done** |
 
 ## Development
 
 ```bash
-python -m pytest       # 304 tests, or 396 with all extras
+python -m pytest       # 371 tests, or 435 with all extras
 python -m ruff check . # lint
 ```
 
