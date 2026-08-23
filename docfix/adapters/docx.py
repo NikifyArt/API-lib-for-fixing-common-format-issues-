@@ -1,8 +1,13 @@
 """DOCX adapter: Word documents in and out.
 
 Unlike PDF, DOCX is a structured format: styles name what a paragraph *is*, so
-extraction is faithful rather than inferred, and a round trip is lossless for
-everything the IR models.
+extraction is faithful rather than inferred. Headings, both list kinds, tables,
+inline marks and hyperlinks survive a round trip.
+
+Known gaps, all because the writer emits no style the reader can key off:
+code blocks come back as plain paragraphs, a thematic break comes back as its
+literal characters, and nested lists are flattened. Word also needs w:numPr to
+distinguish an ordered "List Paragraph" from a bulleted one.
 
 Also unlike PDF, there is no font-coverage problem. DOCX stores text as XML, so
 any character survives regardless of the font; a font name is a *request* the
@@ -39,7 +44,11 @@ EXTENSIONS = (".docx",)
 
 HEADING_STYLE = re.compile(r"^Heading (\d)$", re.IGNORECASE)
 BULLET_STYLE = re.compile(r"^List Bullet", re.IGNORECASE)
-NUMBER_STYLE = re.compile(r"^List (Number|Paragraph)", re.IGNORECASE)
+NUMBER_STYLE = re.compile(r"^List Number", re.IGNORECASE)
+# Word's bullet and numbered buttons both produce "List Paragraph"; whether
+# it is ordered lives in w:numPr, not the style. Bullets are far the commoner
+# case, so it is read as one rather than silently renumbering a bullet list.
+LIST_PARAGRAPH_STYLE = re.compile(r"^List Paragraph$", re.IGNORECASE)
 QUOTE_STYLE = re.compile(r"quote", re.IGNORECASE)
 CODE_STYLE = re.compile(r"^(HTML Code|Code|Macro Text)$", re.IGNORECASE)
 
@@ -198,7 +207,11 @@ def read_path(path: str) -> Document:
             blocks.append(Heading(level=min(6, max(1, level)), runs=runs))
             continue
 
-        if BULLET_STYLE.match(style) or NUMBER_STYLE.match(style):
+        if (
+            BULLET_STYLE.match(style)
+            or NUMBER_STYLE.match(style)
+            or LIST_PARAGRAPH_STYLE.match(style)
+        ):
             ordered = bool(NUMBER_STYLE.match(style)) and not BULLET_STYLE.match(style)
             if pending and pending_ordered != ordered:
                 flush_list()

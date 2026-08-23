@@ -64,6 +64,21 @@ class Config:
     def option(self, rule: str, name: str, default: Any) -> Any:
         return (self.options.get(rule) or {}).get(name, default)
 
+    def int_option(self, rule: str, name: str, default: int) -> int:
+        """An integer option, with an error that says where it came from.
+
+        Without this a bad value surfaces as a bare `invalid literal for int()`
+        from deep inside a rule, naming neither the option nor the file.
+        """
+        value = self.option(rule, name, default)
+        if isinstance(value, bool) or not isinstance(value, int):
+            where = f" in {self.source}" if self.source else ""
+            raise ConfigError(
+                f"option {name!r} for rule {rule!r}{where} must be a whole "
+                f"number; got {value!r}"
+            )
+        return value
+
     def apply(self, issues: list) -> list:
         """Drop disabled rules and apply severity overrides.
 
@@ -130,6 +145,12 @@ def _validate(data: dict, where: str) -> None:
     for name, values in options.items():
         if not isinstance(values, dict):
             raise ConfigError(f"{where}: options for {name!r} must be a table")
+        for option, value in values.items():
+            if not isinstance(value, (str, int, float, bool)):
+                raise ConfigError(
+                    f"{where}: option {option!r} for {name!r} must be a single "
+                    f"value, not {type(value).__name__}"
+                )
 
 
 def from_dict(data: dict, source: str | None = None) -> Config:

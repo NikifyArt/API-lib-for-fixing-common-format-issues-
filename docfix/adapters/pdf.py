@@ -784,6 +784,16 @@ def _markup(runs: list[Run], context: FontContext, role: str = "body") -> str:
     return "".join(parts)
 
 
+# These are produced by coverage_issues rather than by a decorated rule, but
+# Config.apply filters them like any other, so they belong in `docfix rules`.
+COVERAGE_RULE_IDS = (
+    ("font-coverage", "Characters no available font can render."),
+    ("font-unavailable", "None of the template's fonts are installed here."),
+    ("font-embed-cjk-unavailable", "--embed-cjk asked for, no suitable font installed."),
+    ("font-style-missing", "A family with no bold or italic face."),
+)
+
+
 def coverage_issues(doc: Document, template: Template) -> list[Issue]:
     """Report what this machine's fonts cannot render for this template.
 

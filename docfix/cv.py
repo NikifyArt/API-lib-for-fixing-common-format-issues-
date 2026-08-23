@@ -59,7 +59,9 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 PHONE = re.compile(r"(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}")
 URL = re.compile(r"https?://|www\.|\b(?:linkedin|github|gitlab)\b", re.IGNORECASE)
 
-FIRST_PERSON = re.compile(r"\b(I|I'm|I've|my|me|myself)\b")
+# Case-insensitive: the sentence-initial "My work..." is exactly where this
+# most often appears.
+FIRST_PERSON = re.compile(r"\b(I|I'm|I've|my|me|myself)\b", re.IGNORECASE)
 WEAK_OPENERS = (
     "responsible for",
     "duties included",
@@ -173,12 +175,16 @@ def _entries(section: Section) -> list[Entry]:
     """Dated items in a section: sub-headings first, else dated paragraphs."""
     entries: list[Entry] = []
 
-    subheadings = [b for b in section.blocks if isinstance(b, Heading)]
-    if subheadings:
-        for heading in subheadings:
+    positions = [
+        (i, b) for i, b in enumerate(section.blocks) if isinstance(b, Heading)
+    ]
+    if positions:
+        for index, heading in positions:
             text = plain_text(heading.runs)
             # A role's dates often sit in the paragraph under its heading.
-            index = section.blocks.index(heading)
+            # The index comes from the walk: two roles with the same title are
+            # equal dataclasses, so searching by value would find the first
+            # every time and attach the wrong dates.
             for following in section.blocks[index + 1 : index + 3]:
                 if isinstance(following, Paragraph):
                     text = f"{text} {plain_text(following.runs)}"
@@ -246,7 +252,10 @@ def check_contact_details(doc, config: Config = DEFAULT) -> list[Issue]:
     level = _section_level(doc.blocks)
     header: list[Block] = []
     for block in doc.blocks:
-        if isinstance(block, Heading) and block.level == level and header:
+        # Break at the first section heading whether or not anything has been
+        # collected: a CV that opens straight into "## Experience" would
+        # otherwise treat that whole section as its header.
+        if isinstance(block, Heading) and block.level == level:
             break
         header.append(block)
 
@@ -357,7 +366,7 @@ def check_weak_openers(doc, config: Config = DEFAULT) -> list[Issue]:
 @emits("cv-bullet-too-long")
 def check_bullet_length(doc, config: Config = DEFAULT) -> list[Issue]:
     """A bullet past the limit stops being scannable."""
-    limit = int(config.option("cv-bullet-too-long", "max_length", LONG_BULLET))
+    limit = config.int_option("cv-bullet-too-long", "max_length", LONG_BULLET)
     long_ones = [text for text in _bullets(doc) if len(text) > limit]
     if not long_ones:
         return []

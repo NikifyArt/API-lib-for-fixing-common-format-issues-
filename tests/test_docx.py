@@ -264,3 +264,41 @@ def test_missing_dependency_message_names_the_extra():
     from docfix.adapters.docx import MissingDependencyError
 
     assert issubclass(MissingDependencyError, ImportError)
+
+
+# --------------------------------------------------------------------------
+# Regressions found by the push-checkpoint review
+# --------------------------------------------------------------------------
+
+
+def test_word_list_paragraph_bullets_are_not_renumbered(tmp_path):
+    """Word's bullet and numbered buttons both produce "List Paragraph".
+
+    Reading it as ordered turned a bulleted list into "1. 2. 3." -- silently
+    changing what the document says, which the project forbids.
+    """
+    from docx import Document as DocxDocument
+
+    path = tmp_path / "bullets.docx"
+    built = DocxDocument()
+    for text in ("alpha", "beta", "gamma"):
+        built.add_paragraph(text, style="List Paragraph")
+    built.save(str(path))
+
+    lists = [b for b in docx_adapter.read_path(str(path)).blocks if isinstance(b, ListBlock)]
+    assert lists, "List Paragraph should still be read as a list"
+    assert lists[0].ordered is False
+    assert len(lists[0].items) == 3
+
+
+def test_explicit_number_style_is_still_ordered(tmp_path):
+    from docx import Document as DocxDocument
+
+    path = tmp_path / "numbered.docx"
+    built = DocxDocument()
+    for text in ("one", "two"):
+        built.add_paragraph(text, style="List Number")
+    built.save(str(path))
+
+    lists = [b for b in docx_adapter.read_path(str(path)).blocks if isinstance(b, ListBlock)]
+    assert lists and lists[0].ordered is True

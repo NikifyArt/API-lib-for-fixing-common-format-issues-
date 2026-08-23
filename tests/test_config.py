@@ -310,3 +310,60 @@ def test_rules_command_shows_what_the_config_does(project, capsys):
 def test_exit_code_contract(project, argv, expected):
     """CI and pre-commit depend on these, so they are pinned."""
     assert main(argv) == expected
+
+
+# --------------------------------------------------------------------------
+# Regressions found by the push-checkpoint review
+# --------------------------------------------------------------------------
+
+
+def test_out_dir_mirrors_the_tree_rather_than_flattening(project):
+    """Joining --out-dir with the basename alone silently destroyed one of two
+    same-named files in different directories."""
+    (project / "docs" / "sub").mkdir()
+    (project / "docs" / "sub" / "a.md").write_text("# nested\n")
+
+    assert main(["format", "docs", "--out-dir", "built", "-q"]) == EXIT_OK
+    assert (project / "built" / "a.md").exists()
+    assert (project / "built" / "sub" / "a.md").exists()
+    assert "nested" in (project / "built" / "sub" / "a.md").read_text()
+
+
+def test_a_second_run_does_not_reformat_its_own_output(project):
+    assert main(["format", "docs", "--out-dir", "built", "-q"]) == EXIT_OK
+    assert main(["format", "docs", "--out-dir", "built", "-q"]) == EXIT_OK
+    assert sorted(os.listdir(project / "built")) == ["a.md", "b.md"]
+
+
+def test_one_unreadable_file_does_not_abort_the_batch(project, capsys):
+    """A CI gate must not report 'error' having examined a fraction of the tree."""
+    (project / "docs" / "broken.pdf").write_bytes(b"not a pdf at all")
+
+    code = main(["check", "docs"])
+    captured = capsys.readouterr()
+
+    assert code == EXIT_ERROR
+    assert "broken.pdf" in captured.err
+    # Everything else was still checked, including the file sorted after it.
+    assert "docs/a.md" in captured.out and "docs/b.md" in captured.out
+
+
+def test_a_bad_option_value_names_the_option_and_the_file(project):
+    (project / "docfix.toml").write_text(
+        '[options]\n"cv-bullet-too-long" = { max_length = "long" }\n'
+    )
+    found = cfg.discover()
+    with pytest.raises(cfg.ConfigError, match="max_length"):
+        found.int_option("cv-bullet-too-long", "max_length", 220)
+
+
+def test_a_non_scalar_option_is_rejected_at_load():
+    with pytest.raises(cfg.ConfigError, match="single value"):
+        cfg.from_dict({"options": {"r": {"x": [1, 2]}}})
+
+
+def test_font_rule_ids_are_listed_by_the_rules_command(capsys):
+    """They are configurable, so they must be discoverable."""
+    main(["rules", "--no-config"])
+    out = capsys.readouterr().out
+    assert "font-coverage" in out and "font-unavailable" in out

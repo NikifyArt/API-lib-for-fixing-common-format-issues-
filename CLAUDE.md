@@ -45,7 +45,8 @@ docfix/
   config.py              docfix.toml / [tool.docfix]: rule control, options, exclude
   templates/
     loader.py            YAML → Template, with validation
-    presets/*.yaml       formal, friendly, technical, minimal
+    presets/*.yaml       formal, friendly, technical, minimal,
+                         cv-classic, cv-modern, cv-compact
   detect/rules.py        STRUCTURE_RULES (on the IR) + SOURCE_RULES (on raw text)
   cv.py                  CV section/entry model + CV_RULES (report-only)
   fix/normalize.py       safe repairs only
@@ -60,8 +61,8 @@ docfix/
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
-  cli.py                 format / check / templates
-tests/                   304 tests, 396 with all extras installed
+  cli.py                 format / check / scan / fonts / rules / templates
+tests/                   332 tests, 396 with all extras installed
 ```
 
 ### Things that will bite you
@@ -169,6 +170,15 @@ tests/                   304 tests, 396 with all extras installed
   reader's default instead of the chosen family.
 - **python-docx has no hyperlink API.** Reading follows `w:hyperlink` children;
   writing builds the element and relationship by hand.
+- **Word's bullet *and* numbered buttons both produce `List Paragraph`.**
+  Whether it is ordered lives in `w:numPr`, not the style, so the style alone
+  cannot decide. It is read as a bullet — the commoner case — because the
+  alternative silently renumbers a bulleted list, and inventing content is
+  worse than under-reading it.
+- **The round trip is not lossless for everything.** Headings, both list kinds,
+  tables, inline marks and hyperlinks survive. Code blocks, thematic breaks and
+  nested lists do not, because the writer emits no style the reader can key
+  off. See `docs/BUG-REPORTS.md`; do not describe DOCX as lossless.
 
 ### Fonts
 
@@ -230,7 +240,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 304 tests (396 with all extras), ~9s
+python -m pytest          # 332 tests (396 with all extras), ~7s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -272,6 +282,29 @@ the IR is clean, reading back recovers text and rough structure but is lossy.
 Never promise a faithful in-place PDF restyle. The honest workflow, and the one
 the CLI nudges toward, is `--keep-intermediate`: extract to Markdown, let the
 user check and correct it, then format from there.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pushes to `main` and to `claude/**`, and on
+pull requests. Four jobs:
+
+| Job | What it protects |
+| --- | --- |
+| `test` | 3 Python versions × 3 dependency shapes (`dev`, `dev,pdf`, `dev,all`) — the extras are optional, so the package must work without them |
+| `lint` | `ruff` |
+| `packaging` | builds a wheel, asserts the runtime YAML is *inside* it, then installs **that wheel** and runs it |
+| `invariants` | the promises, driven through the CLI: source never modified, idempotent, overwrite refused, non-Latin text survives PDF generation |
+
+Two things that are easy to get wrong here:
+
+- **An editable install cannot prove packaging.** `pip install -e` resolves data
+  files from the source tree, so a missing `package-data` entry is invisible in
+  development. This already shipped once, with `docfix/fonts/catalog.yaml`.
+- **A bare runner has almost no fonts.** The PDF jobs install
+  `fonts-dejavu-core` and `fonts-liberation`, or PDF output would only ever
+  exercise the degraded path. Tests must assert the *contract* — a character
+  renders exactly **or** is reported unrenderable — never that a given machine
+  has a given glyph.
 
 ## Quality gates (skills + hook)
 

@@ -306,3 +306,45 @@ def test_cv_presets_format_a_real_cv(tmp_path, name):
     result = docfix.format_file(str(source), template=name, output=str(out))
     assert out.read_text().startswith("# Ada Lovelace")
     assert result.template == name
+
+
+# --------------------------------------------------------------------------
+# Regressions found by the push-checkpoint review
+# --------------------------------------------------------------------------
+
+
+def test_entries_with_the_same_title_keep_their_own_dates():
+    """Heading is a plain dataclass, so two identical headings compare equal.
+
+    Locating one by value found the first every time and gave both entries the
+    same dates, which hid a genuinely forward-chronological CV.
+    """
+    text = (
+        "# Me\n\nme@x.test\n\n## Experience\n\n"
+        "### Software Engineer\n\nGlobex 2015–2018\n\n"
+        "### Software Engineer\n\nAcme 2020–2022\n\n"
+        "## Education\n\n### D — 2016\n"
+    )
+    experience = next(s for s in cv.sections(md.read(text)) if s.kind == "experience")
+    assert [(e.start, e.end) for e in experience.entries] == [(2015, 2018), (2020, 2022)]
+    assert "cv-not-reverse-chronological" in rules(text)
+
+
+def test_a_cv_opening_with_a_section_still_needs_contact_details():
+    """The header window used to swallow the whole first section, so a URL
+    inside a job description satisfied the check."""
+    text = (
+        "## Experience\n\n### R — 2020\n\n- See https://acme.test/team\n\n"
+        "## Education\n\n### D — 2016\n"
+    )
+    assert "cv-missing-contact" in rules(text)
+
+
+@pytest.mark.parametrize("bullet", ["My work reduced latency", "Me and the team shipped it"])
+def test_capitalised_first_person_is_caught(bullet):
+    """Sentence-initial is exactly where this appears, and it was being missed."""
+    text = (
+        f"# Me\n\nme@x.test\n\n## Experience\n\n### R — 2020\n\n- {bullet}\n\n"
+        "## Education\n\n### D — 2016\n"
+    )
+    assert "cv-first-person" in rules(text)

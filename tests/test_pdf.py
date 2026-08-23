@@ -550,17 +550,23 @@ def test_mixed_script_line_keeps_every_run(tmp_path):
 
 
 def test_no_notdef_for_anything_the_fonts_do_cover(tmp_path):
-    """A dropped glyph is only acceptable where docfix said so in advance."""
+    """A dropped glyph is only acceptable where docfix named that character.
+
+    Asserting merely that *something* was reported would pass even if the
+    resolver named one character and reportlab dropped a different one -- which
+    is exactly the silent-corruption failure the font pool exists to prevent.
+    Each rendered line is checked against its own sample.
+    """
     samples = list(SCRIPT_SAMPLES.values())
     lines = _render_lines(samples, tmp_path)
-    missing = set()
-    for sample in samples:
-        missing |= _unrenderable(sample)
+    assert len(lines) == len(samples), "a sample failed to render at all"
 
-    for line in lines:
-        if "\x00" not in line:
-            continue
-        assert missing, "a glyph was dropped with nothing reported as unrenderable"
+    for sample, line in zip(samples, lines, strict=True):
+        missing = _unrenderable(sample)
+        survived = "".join(char for char in sample if char not in missing)
+        assert line.replace("\x00", "") == survived, (
+            f"dropped glyphs do not match what was reported for {sample!r}"
+        )
 
 
 def test_unrenderable_characters_are_reported_not_dropped(tmp_path):

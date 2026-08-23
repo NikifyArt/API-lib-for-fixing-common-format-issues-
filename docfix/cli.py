@@ -25,6 +25,20 @@ EXIT_ERROR = 2
 
 SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 
+def _reason(exc: Exception) -> str:
+    """A one-line explanation of why one file could not be handled.
+
+    Deliberately broad at the call sites: a parser deep inside an optional
+    dependency raises its own exception type -- pdfplumber's PdfminerException
+    is neither an OSError nor a ValueError -- and one unreadable file must not
+    abort a batch. The type is included so a genuine bug is still diagnosable.
+    """
+    if isinstance(exc, FileNotFoundError):
+        return f"no such file: {exc.filename}"
+    if isinstance(exc, (TemplateError, ConfigError, adapters.UnsupportedFormatError)):
+        return str(exc)
+    return f"{type(exc).__name__}: {exc}"
+
 
 def _print_issues(issues, stream) -> None:
     for issue in sorted(
@@ -66,19 +80,29 @@ def _excluded(path: str, patterns: list[str]) -> bool:
     return False
 
 
-def _targets(paths: list[str], exclude: list[str]) -> list[str]:
-    """Every formattable file named by the arguments, deduplicated and sorted.
+def _targets(
+    paths: list[str], exclude: list[str], skip: str | None = None
+) -> list[tuple[str, str]]:
+    """Every formattable file named by the arguments, as (path, base) pairs.
 
-    A directory is walked; a file is taken as given, so naming a file
-    explicitly works even for an extension no adapter claims -- the error then
-    comes from the adapter, which says something useful.
+    `base` is the directory the file was found under, so `--out-dir` can mirror
+    the tree rather than flatten it. A directory is walked; a file is taken as
+    given, so naming one explicitly works even for an extension no adapter
+    claims -- the error then comes from the adapter, which says something useful.
+
+    `skip` excludes an output directory, so running the same command twice does
+    not pick up its own results.
     """
     supported = set(adapters.supported_extensions())
-    found: list[str] = []
+    found: dict[str, str] = {}
+    skip_real = os.path.realpath(skip) if skip else None
 
     for entry in paths:
         if os.path.isdir(entry):
             for root, dirs, files in os.walk(entry):
+                if skip_real and os.path.realpath(root).startswith(skip_real):
+                    dirs[:] = []
+                    continue
                 dirs[:] = [d for d in sorted(dirs) if not d.startswith(".")]
                 for name in sorted(files):
                     candidate = os.path.join(root, name)
@@ -89,18 +113,26 @@ def _targets(paths: list[str], exclude: list[str]) -> list[str]:
                         continue
                     if _excluded(candidate, exclude):
                         continue
-                    found.append(candidate)
-        else:
-            if not _excluded(entry, exclude):
-                found.append(entry)
+                    found.setdefault(candidate, entry)
+        elif not _excluded(entry, exclude):
+            found.setdefault(entry, os.path.dirname(entry) or ".")
 
-    return sorted(dict.fromkeys(found))
+    return sorted(found.items())
 
 
-def _destination(source: str, args) -> str | None:
-    """Where one file's output goes, or None for the default alongside it."""
+def _destination(source: str, base: str, args) -> str | None:
+    """Where one file's output goes, or None for the default alongside it.
+
+    Mirrors the source tree under --out-dir: flattening to the basename would
+    silently overwrite `a/README.md` with `b/README.md`.
+    """
     if getattr(args, "out_dir", None):
-        return os.path.join(args.out_dir, os.path.basename(source))
+        relative = os.path.relpath(source, base)
+        if relative.startswith(".."):
+            relative = os.path.basename(source)
+        target = os.path.join(args.out_dir, relative)
+        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+        return target
     return args.output
 
 
@@ -212,7 +244,7 @@ def _diff_one(path: str, args, config) -> tuple[bool, str]:
 
 def cmd_format(args) -> int:
     config = _config(args)
-    files = _targets(args.file, config.exclude)
+    files = _targets(args.file, config.exclude, skip=args.out_dir)
     if not files:
         print("docfix: nothing to format", file=sys.stderr)
         return EXIT_OK
@@ -226,34 +258,45 @@ def cmd_format(args) -> int:
         return EXIT_ERROR
 
     if args.diff:
-        changed = 0
-        for path in files:
-            differs, text = _diff_one(path, args, config)
+        changed = failed = 0
+        for path, _base in files:
+            try:
+                differs, text = _diff_one(path, args, config)
+            except Exception as exc:  # noqa: BLE001 - see _reason
+                failed += 1
+                print(f"docfix: {path}: {_reason(exc)}", file=sys.stderr)
+                continue
             if differs:
                 changed += 1
                 sys.stdout.write(text)
         print(f"\n{changed} of {len(files)} file(s) would change")
+        if failed:
+            return EXIT_ERROR
         return EXIT_ISSUES if changed else EXIT_OK
 
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)
 
     status = EXIT_OK
-    for path in files:
+    for path, base in files:
         single = argparse.Namespace(**vars(args))
         single.file = path
         if not _confirm_lossy_conversion(single):
             status = EXIT_ERROR
             continue
-        _format_one(path, args, config)
+        try:
+            _format_one(path, base, args, config)
+        except Exception as exc:  # noqa: BLE001 - see _reason
+            status = EXIT_ERROR
+            print(f"docfix: {path}: {_reason(exc)}", file=sys.stderr)
     return status
 
 
-def _format_one(path: str, args, config) -> None:
+def _format_one(path: str, base: str, args, config) -> None:
     result = docfix.format_file(
         path,
         template=args.template,
-        output=_destination(path, args),
+        output=_destination(path, base, args),
         keep_intermediate=args.keep_intermediate,
         embed_cjk=args.embed_cjk,
         cv=_cv_flag(args),
@@ -293,8 +336,16 @@ def cmd_check(args) -> int:
         return EXIT_OK
 
     total = 0
-    for path in files:
-        issues = docfix.detect(path, cv=_cv_flag(args), config=config)
+    failed = 0
+    for path, _base in files:
+        try:
+            issues = docfix.detect(path, cv=_cv_flag(args), config=config)
+        except Exception as exc:  # noqa: BLE001 - see _reason
+            # One unreadable file must not stop the batch, or a CI gate reports
+            # an error while having examined only part of the tree.
+            failed += 1
+            print(f"docfix: {path}: {_reason(exc)}", file=sys.stderr)
+            continue
         total += len(issues)
         print(f"{path}: {_summary(issues)}")
         if issues:
@@ -302,6 +353,8 @@ def cmd_check(args) -> int:
 
     if len(files) > 1:
         print(f"\n{len(files)} file(s), {total} issue(s)")
+    if failed:
+        return EXIT_ERROR
     return EXIT_ISSUES if total else EXIT_OK
 
 
@@ -381,6 +434,14 @@ def cmd_rules(args) -> int:
                 print(f"  {marker} {rule_id:28} {summary}")
                 summary = ""
         print()
+
+    from docfix.adapters.pdf import COVERAGE_RULE_IDS
+
+    print("font rules -- reported when writing a PDF")
+    for rule_id, summary in COVERAGE_RULE_IDS:
+        marker = " " if config.enabled(rule_id) else "-"
+        print(f"  {marker} {rule_id:28} {summary}")
+    print()
 
     disabled = [name for name, setting in config.rules.items() if setting is False]
     overridden = {n: s for n, s in config.rules.items() if isinstance(s, str)}
