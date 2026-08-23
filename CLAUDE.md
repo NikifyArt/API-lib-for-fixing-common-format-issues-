@@ -53,6 +53,8 @@ docfix/
   fonts/
     sfnt.py              standalone TTF reader: fsType, cmap, names, outline kind
     catalog.yaml         licence signatures + known families (DATA)
+    pinned.yaml          the pinned font set: SHA-pinned URLs + checksums (DATA)
+    cache.py             download, checksum, licence capture; the pinned cache
     discover.py          find font files; group faces into families
     registry.py          pool assembly, licence gate, reportlab registration
     coverage.py          per-span font choice; unrenderable reporting
@@ -62,7 +64,7 @@ docfix/
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / scan / fonts / rules / templates
-tests/                   332 tests, 396 with all extras installed
+tests/                   371 tests, 437 with all extras installed
 ```
 
 ### Things that will bite you
@@ -102,6 +104,13 @@ tests/                   332 tests, 396 with all extras installed
 - **Bullets often do not decode.** Symbol and dingbat fonts frequently lack a
   ToUnicode map, so a bullet arrives as `(cid:127)`. `BULLET_MARKER` matches the
   cid form deliberately; without it the bullets merge into one paragraph.
+- **reportlab styles a bullet separately from its text.** `ParagraphStyle`
+  defaults `bulletFontName` to Helvetica and `bulletFontSize` to 10, ignoring
+  `fontName`/`fontSize`, so every list marker drew in a base-14 face at the
+  wrong size until `_styles` named both. Set them on any new style that passes
+  `bulletText`. It is not only cosmetic: Helvetica is never embedded, so the
+  markers were machine-dependent, and `font-not-pinned` cannot see them —
+  the bullet never goes through span resolution.
 - **`"sans-serif"` contains `"serif"`.** Check sans before serif in `_base_font`
   or every sans stack maps to Times.
 - **The running-header band is 15% of page height**, not 8%. A typical page has
@@ -218,6 +227,28 @@ warning. The font pool exists to fix that, and these are the traps in it:
 - **`fsType` is parsed by `sfnt.py`, not reportlab.** reportlab does not expose
   it, and the gate must work on files reportlab refuses to load.
 
+### The pinned cache (reproducible output)
+
+- **The repo still ships no fonts.** `pinned.yaml` holds URLs and checksums,
+  not binaries. That is what keeps the licence story simple: docfix
+  redistributes nothing.
+- **Every URL pins a commit SHA**, never a branch or tag, so the bytes cannot
+  change under us. A test asserts no `/main/` or `/master/` in any URL.
+- **A checksum mismatch is fatal and the file is discarded.** A partial or
+  tampered download must never land in the cache — knowing exactly which bytes
+  rendered a document is the whole point.
+- **The cache is searched before the system**, so a pinned family beats a
+  same-named system one.
+- **`font-not-pinned` reports fonts actually *used*, not merely available.**
+  The catalogue's fallback chain puts system families in every chain, so
+  reporting availability would fire on every document. `_span_markup` records
+  what each span was set in.
+- **`install()` resets the memoised pool.** Without it a caller that installs
+  fonts and then formats in the same process still sees the old set.
+- **Adding a font means verifying it first** — TrueType outlines, `fsType`
+  permitting embedding, and an open licence the font itself declares — then
+  recording the real SHA-256. Never write a checksum you have not computed.
+
 ### Licensing rules — do not weaken these
 
 `docfix` ships no fonts, so it redistributes nothing. Two separate checks:
@@ -240,7 +271,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 332 tests (396 with all extras), ~7s
+python -m pytest          # 371 tests (437 with all extras), ~9s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -270,7 +301,7 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 4 | DOCX adapter (read + write) | **done** |
 | 5 | CV/résumé template layer | **done** |
 | 6 | Config file, rule control, batch, `--diff` | **done** |
-| 7 | Reproducible font output | planned |
+| 7 | Reproducible font output | **done** |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
 `source_text` if the format is text), register it in `adapters/__init__.py`, and

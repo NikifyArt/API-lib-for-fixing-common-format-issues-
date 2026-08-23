@@ -1,0 +1,32 @@
+name: reproducible
+description: Names only fonts from the pinned set, so output is identical on any machine that has run `docfix fonts install`.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "*"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+# Every family here is in docfix/fonts/pinned.yaml. Naming anything else would
+# let the machine's own fonts decide how the document looks.
+fonts:
+  body:    {family: "Lato", size: 11}
+  heading: {family: "Lato", size: 16, weight: 700}
+  mono:    {family: "IBM Plex Mono", size: 9}
+  # Noto Sans is the widest of the pinned families, so it fills coverage gaps.
+  fallback: ["Noto Sans", "IBM Plex Serif"]
+
+spacing:
+  line_height: 1.45
+  paragraph_after: 10
+  heading_before: 18
+  heading_after: 6
+
+colors:
+  text: "#1a1a1a"
+  heading: "#111111"
+  accent: "#333333"
+  muted: "#5c6670"
+  link: "#0b5cad"

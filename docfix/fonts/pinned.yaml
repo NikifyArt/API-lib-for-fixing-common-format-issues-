@@ -1,0 +1,99 @@
+# Pinned fonts: the set docfix installs for reproducible PDF output.
+#
+# Data, like catalog.yaml. Adding a font means adding an entry here.
+#
+# Why this exists: PDF output otherwise depends on whichever fonts a machine
+# happens to have, so the same CV renders differently on a laptop and in CI.
+# `docfix fonts install` fetches this set into a cache the pool prefers, so
+# output is identical anywhere the install has been run.
+#
+# Every URL pins a **commit SHA**, not a branch or tag, so the bytes cannot
+# change under us. The sha256 is verified on download and again on `--check`;
+# a mismatch is a hard failure, never a warning.
+#
+# Every entry was verified before being added, by reading the font itself:
+# TrueType outlines (reportlab loads nothing else), fsType 0 meaning embedding
+# is unrestricted, and an OFL-1.1 licence declared by the font's own name
+# table. The licence text is fetched alongside and stored in the cache.
+#
+# Coverage measured from each cmap: Lato and Noto Sans cover Latin, Latin
+# Extended, Cyrillic and Greek; IBM Plex covers Latin and Cyrillic. Noto Sans
+# is the widest and sits in the fallback chain.
+
+source:
+  repository: google/fonts
+  commit: ec626514f79f831f1ab848a82114a0ce7e2d6372
+
+families:
+  - family: Lato
+    category: sans
+    licence: OFL-1.1
+    licence_url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/lato/OFL.txt"
+    faces:
+      - style: regular
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/lato/Lato-Regular.ttf"
+        sha256: "d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251"
+        size: 656568
+      - style: bold
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/lato/Lato-Bold.ttf"
+        sha256: "8a0aace75d33794eece4b28187bfc1df0bbd2888b5d8a56e01788c8d65d16be1"
+        size: 656544
+      - style: italic
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/lato/Lato-Italic.ttf"
+        sha256: "e399c44efe1387100531d26c7e4800c5d12251b890d6654a3098c7c679cb1786"
+        size: 722900
+      - style: bolditalic
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/lato/Lato-BoldItalic.ttf"
+        sha256: "62c1b7f0d2e74b45960154c3520efc337b553db0961bfdc950d5618334596cc8"
+        size: 698364
+  - family: IBM Plex Serif
+    category: serif
+    licence: OFL-1.1
+    licence_url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexserif/OFL.txt"
+    faces:
+      - style: regular
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexserif/IBMPlexSerif-Regular.ttf"
+        sha256: "e882efa9c41949a528ac2369079ec5ef050c1c996bbd0bacce3c3326d44cf80d"
+        size: 163068
+      - style: bold
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexserif/IBMPlexSerif-Bold.ttf"
+        sha256: "534c02c295999dd86e770457ece1d43db0de9256dd98bf741426f63ae904209e"
+        size: 163800
+      - style: italic
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexserif/IBMPlexSerif-Italic.ttf"
+        sha256: "4b75b38be4673527231f49c48818d090c913d5042dd5c747b525bf6185d29ecb"
+        size: 173004
+      - style: bolditalic
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexserif/IBMPlexSerif-BoldItalic.ttf"
+        sha256: "2a32b76ac19c1942bf5942dbbd2a1566e5f1ae9833e421ebcf36d3522715e153"
+        size: 173032
+  - family: IBM Plex Mono
+    category: mono
+    licence: OFL-1.1
+    licence_url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexmono/OFL.txt"
+    faces:
+      - style: regular
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexmono/IBMPlexMono-Regular.ttf"
+        sha256: "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+        size: 135580
+      - style: bold
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexmono/IBMPlexMono-Bold.ttf"
+        sha256: "ac27abd6450a64dd94467580a02fe6235156d5b92f2926ebbc8e7489df64e0be"
+        size: 137784
+      - style: italic
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexmono/IBMPlexMono-Italic.ttf"
+        sha256: "3362fc791b0652193328b862c1c5f23a789bc7288b1617fa63302f88689a2a34"
+        size: 143920
+      - style: bolditalic
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/ibmplexmono/IBMPlexMono-BoldItalic.ttf"
+        sha256: "af4e05a761e98c1adf064c48a6352c9bec1a6ad70982cd2a544149323391f98e"
+        size: 144512
+  - family: Noto Sans
+    category: sans
+    licence: OFL-1.1
+    licence_url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/notosans/OFL.txt"
+    faces:
+      - style: regular
+        url: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf"
+        sha256: "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+        size: 2049096

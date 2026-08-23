@@ -358,11 +358,55 @@ def cmd_check(args) -> int:
     return EXIT_ISSUES if total else EXIT_OK
 
 
+def _cmd_fonts_install(args) -> int:
+    """Download the pinned set, or verify what is already cached."""
+    from docfix.fonts import cache
+
+    directory = cache.cache_dir()
+
+    if args.check:
+        problems = cache.verify()
+        if not problems:
+            print(f"pinned fonts verified in {directory}")
+            return EXIT_OK
+        print(f"{len(problems)} problem(s) with the cache in {directory}:", file=sys.stderr)
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+        return EXIT_ISSUES
+
+    installed, skipped = cache.install(force=args.force)
+    print(f"pinned fonts in {directory}")
+    print(f"  {len(installed)} downloaded, {len(skipped)} already present")
+    if installed:
+        print("PDF output will now use the pinned set rather than this machine's fonts.")
+    return EXIT_OK
+
+
 def cmd_fonts(args) -> int:
     """Show the font pool: what is installed, what may be used, and why."""
-    from docfix.fonts import describe_fs_type, pool
+    from docfix.fonts import cache, describe_fs_type, pool
+
+    if getattr(args, "action", None) == "install":
+        return _cmd_fonts_install(args)
 
     available = pool()
+
+    if args.reproducible:
+        pinned = available.pinned_families()
+        expected = cache.pinned_families()
+        missing = sorted(expected - {f.name for f in pinned})
+        print(f"pinned cache: {cache.cache_dir()}")
+        print(f"  {len(pinned)} of {len(expected)} pinned families resolved")
+        for family in pinned:
+            print(f"    pinned  {family.name}")
+        for name in missing:
+            print(f"    MISSING {name}")
+        if missing:
+            print("\nRun `docfix fonts install` for reproducible output.", file=sys.stderr)
+            return EXIT_ISSUES
+        print("\nEvery pinned family is available; output is reproducible when a "
+              "template names only these.")
+        return EXIT_OK
 
     if args.family:
         family = available.get(args.family)
@@ -388,11 +432,12 @@ def cmd_fonts(args) -> int:
         print("which covers Latin-1 only; anything beyond it will be reported.")
         return EXIT_OK
 
-    print(f"{'family':26} {'cat':6} {'styles':4} {'licence':20} auto")
+    print(f"{'family':26} {'cat':6} {'styles':4} {'licence':20} {'auto':5} source")
     for family in families:
         print(
             f"{family.name:26} {family.category:6} {len(family.styles):<4} "
-            f"{family.license.id:20} {'yes' if family.auto_selectable else 'no'}"
+            f"{family.license.id:20} {'yes' if family.auto_selectable else 'no':5} "
+            f"{'pinned' if family.pinned else 'system'}"
         )
 
     auto = sum(1 for f in families if f.auto_selectable)
@@ -587,6 +632,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fonts.add_argument(
         "--skipped", action="store_true", help="also list font files that cannot be used"
+    )
+    fonts.add_argument(
+        "action",
+        nargs="?",
+        choices=["install"],
+        default=None,
+        help="install: download the pinned set for reproducible output",
+    )
+    fonts.add_argument(
+        "--check",
+        action="store_true",
+        help="with install: verify the cache without downloading",
+    )
+    fonts.add_argument(
+        "--force", action="store_true", help="with install: re-download everything"
+    )
+    fonts.add_argument(
+        "--reproducible",
+        action="store_true",
+        help="report whether the pinned set is available (exit 1 if not)",
     )
     fonts.set_defaults(func=cmd_fonts)
 

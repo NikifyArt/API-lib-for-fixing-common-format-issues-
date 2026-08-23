@@ -43,9 +43,21 @@ def reportlab_font_dir() -> str | None:
     return path if os.path.isdir(path) else None
 
 
-def search_dirs(extra: list[str] | None = None) -> list[str]:
-    """Every directory to search, in priority order, deduplicated."""
-    candidates: list[str] = list(extra or [])
+def search_dirs(extra: list[str] | None = None, use_cache: bool = True) -> list[str]:
+    """Every directory to search, in priority order, deduplicated.
+
+    The pinned cache comes first, ahead of anything installed on the machine,
+    so a family present in both renders from the pinned copy and output does
+    not depend on what the machine happens to have.
+    """
+    candidates: list[str] = []
+
+    if use_cache:
+        from docfix.fonts.cache import cache_dir
+
+        candidates.append(cache_dir())
+
+    candidates.extend(extra or [])
 
     from_env = os.environ.get(ENV_PATH, "")
     if from_env:
@@ -67,11 +79,11 @@ def search_dirs(extra: list[str] | None = None) -> list[str]:
     return resolved
 
 
-def font_files(extra: list[str] | None = None) -> Iterator[str]:
+def font_files(extra: list[str] | None = None, use_cache: bool = True) -> Iterator[str]:
     """Every font file found, without parsing any of them."""
     count = 0
     seen: set[str] = set()
-    for directory in search_dirs(extra):
+    for directory in search_dirs(extra, use_cache=use_cache):
         for root, _dirs, files in os.walk(directory):
             for name in sorted(files):
                 if not name.lower().endswith(FONT_SUFFIXES):
@@ -86,7 +98,7 @@ def font_files(extra: list[str] | None = None) -> Iterator[str]:
                 yield path
 
 
-def scan(extra: list[str] | None = None) -> list[sfnt.FontInfo]:
+def scan(extra: list[str] | None = None, use_cache: bool = True) -> list[sfnt.FontInfo]:
     """Parse the metadata of every discoverable font.
 
     Coverage is deliberately not read here -- parsing every cmap on a machine
@@ -94,7 +106,7 @@ def scan(extra: list[str] | None = None) -> list[sfnt.FontInfo]:
     registry loads coverage on demand.
     """
     found: list[sfnt.FontInfo] = []
-    for path in font_files(extra):
+    for path in font_files(extra, use_cache=use_cache):
         try:
             info = sfnt.read(path, with_coverage=False)
         except sfnt.FontFileError:

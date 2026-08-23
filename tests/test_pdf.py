@@ -22,7 +22,7 @@ except BaseException as exc:  # noqa: BLE001
 
 import docfix
 from docfix.adapters import pdf as pdf_adapter
-from docfix.ir import CodeBlock, Document, Heading, ListBlock, Paragraph, Run, Table
+from docfix.ir import CodeBlock, Document, Heading, ListBlock, ListItem, Paragraph, Run, Table
 from docfix.templates import load
 
 # --------------------------------------------------------------------------
@@ -608,6 +608,40 @@ def test_bold_uses_the_real_bold_face(tmp_path):
         face, _exact = primary.name_for(bold=True)
         assert f'face="{face}"' in markup
         assert "-bold" in face or primary.name == face
+
+
+def test_list_markers_use_the_document_font_not_a_base14_one():
+    """reportlab draws bulletText in bulletFontName, which it defaults to
+    Helvetica at 10pt regardless of the style's own font. Left unset, every
+    bullet and list number renders in a base-14 face at the wrong size while
+    its text uses the document's font -- mismatched on the page, and not
+    reproducible, since Helvetica is never embedded."""
+    for preset in ("minimal", "technical", "reproducible"):
+        template = load(preset)
+        context = pdf_adapter.build_font_context(template)
+        item = pdf_adapter._styles(template, context)["item"]
+        assert item.bulletFontName == item.fontName, preset
+        assert item.bulletFontSize == item.fontSize, preset
+
+
+def test_rendered_list_markers_share_the_item_font(tmp_path):
+    """The end of the same contract, measured on the page: a list must not
+    introduce a font that its text does not use."""
+    doc = Document(
+        blocks=[
+            ListBlock(ordered=False, items=[ListItem(runs=[Run("alpha")])]),
+            ListBlock(ordered=True, items=[ListItem(runs=[Run("beta")])]),
+        ]
+    )
+    out = tmp_path / "markers.pdf"
+    pdf_adapter.write_path(doc, load("minimal"), str(out))
+
+    with pdfplumber.open(str(out)) as pdf:
+        used = {char["fontname"] for page in pdf.pages for char in page.chars}
+        text = "".join(page.extract_text() or "" for page in pdf.pages)
+
+    assert "-" in text and "1." in text, "the markers did not render at all"
+    assert len(used) == 1, f"markers pulled in another font: {sorted(used)}"
 
 
 def test_missing_bold_face_degrades_and_is_reported():
