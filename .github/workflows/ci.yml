@@ -20,9 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12"]
-        # Both dependency sets: the PDF extras are optional, so the package has
-        # to work without them. Tests that need them skip rather than fail.
-        extras: ["dev", "dev,pdf"]
+        # Every optional-dependency shape: none, PDF only, and everything.
+        # The extras really are optional, so the package has to work without
+        # them; tests that need them skip rather than fail.
+        extras: ["dev", "dev,pdf", "dev,all"]
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +49,7 @@ jobs:
         run: |
           python -c "
           import importlib
-          for module in ('pdfplumber', 'reportlab'):
+          for module in ('pdfplumber', 'reportlab', 'docx'):
               try:
                   importlib.import_module(module)
               except BaseException:

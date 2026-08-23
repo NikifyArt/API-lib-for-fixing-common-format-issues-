@@ -7,14 +7,16 @@ Find and fix common formatting problems in documents. Prettier, but for `.md`,
 safe ones, applies a named template, and writes the result to a **new file**.
 The source is never modified.
 
-> **Status: alpha.** Markdown and PDF are implemented end to end. DOCX and the
-> CV template layer are planned — see [Roadmap](#roadmap).
+> **Status: alpha.** Markdown, PDF and DOCX are implemented end to end. The
+> CV template layer is planned — see [Roadmap](#roadmap).
 
 ## Install
 
 ```bash
 pip install -e ".[dev]"          # Markdown only
 pip install -e ".[dev,pdf]"      # adds PDF support
+pip install -e ".[dev,docx]"     # adds Word support
+pip install -e ".[dev,all]"      # everything
 ```
 
 ## Use it
@@ -86,6 +88,22 @@ colors: {text: "#1a1a1a", accent: "#0b3d5c"}
 ```
 
 Pass a path to use your own: `docfix format notes.md -t ./house-style.yaml`.
+
+## Working with Word documents
+
+DOCX is structured — styles say what a paragraph *is* — so extraction is
+faithful rather than inferred, and a round trip preserves headings, both list
+kinds, tables, inline formatting and hyperlinks.
+
+```bash
+docfix format report.docx -t formal   # writes report.formatted.docx
+docfix format report.docx -o out.md   # or convert to Markdown
+docfix format notes.md -o out.docx    # or the other way
+```
+
+Unlike PDF there is no glyph-coverage problem: DOCX stores text as XML, so any
+character survives, and a font name is a *request* the reader substitutes if it
+lacks it. Nothing is embedded, so the font licence rules do not apply here.
 
 ## Working with PDFs
 
@@ -218,7 +236,7 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
 | 2 | PDF: risk scan, extraction, generation | **done** |
 | 3 | Font pool, script coverage, licence gating | **done** |
-| 4 | DOCX adapter (read + write) | planned |
+| 4 | DOCX adapter (read + write) | **done** |
 | 5 | CV/résumé template layer | planned |
 
 ## Development

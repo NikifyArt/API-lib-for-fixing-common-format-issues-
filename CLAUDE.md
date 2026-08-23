@@ -57,6 +57,7 @@ docfix/
     __init__.py          Adapter registry; for_path() dispatches on extension
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
+    docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / templates
 tests/                   202 tests, 258 with the PDF extras installed
 ```
@@ -110,6 +111,21 @@ tests/                   202 tests, 258 with the PDF extras installed
   dependency surfaces as a pyo3 panic, and a raw Rust traceback tells the user
   nothing about what to install. `tests/test_pdf.py` skips on the same basis —
   `pytest.importorskip` does not catch a panic and collection would fail.
+
+### DOCX specifics
+
+- **Styles carry the structure.** `Heading N`, `List Bullet`, `List Number`,
+  `Quote` are what identify a block on the way back in. Writing a blockquote as
+  an indented `Normal` paragraph loses it — use the `Quote` style.
+- **Iterate `body.iterchildren()`, not `.paragraphs`.** Only the element walk
+  preserves document order when tables are interleaved with paragraphs.
+- **No coverage problem, and no licence question.** DOCX stores text as XML, so
+  any character survives; a font name is a request, not an embedding. The
+  adapter therefore declares `coverage_issues=None`.
+- **Word needs `w:eastAsia` set** on a style's `rFonts` or CJK falls back to the
+  reader's default instead of the chosen family.
+- **python-docx has no hyperlink API.** Reading follows `w:hyperlink` children;
+  writing builds the element and relationship by hand.
 
 ### Fonts
 
@@ -198,7 +214,7 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
 | 2 | PDF: risk scan, extraction, generation | **done** |
 | 3 | Font pool, script coverage, licence gating | **done** |
-| 4 | DOCX adapter (read + write) | planned |
+| 4 | DOCX adapter (read + write) | **done** |
 | 5 | CV/résumé template layer | planned |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
