@@ -131,6 +131,13 @@ warning. The font pool exists to fix that, and these are the traps in it:
 - **`loadable` requires `glyf` *and* `loca`**, not just a TrueType signature.
   Colour emoji fonts have the signature but store bitmaps; reportlab fails on
   them with "missing location table".
+- **`--embed-cjk` swaps CID for a real font.** The default relies on the
+  reader's own glyphs; the flag embeds an installed open-licensed CJK font
+  ahead of the CID entries in the chain, so it wins. It never relaxes the
+  licence gate, and falls back to CID (reporting
+  `font-embed-cjk-unavailable`) when nothing qualifies. The flag is carried on
+  a *copy* of the template — presets are shared objects and must not be
+  mutated per call.
 - **No single CID collection covers CJK.** Measured by rendering and extracting
   back: `HeiseiKakuGo-W5` covers Han (simplified and traditional) and kana but
   **not Hangul**; `HYSMyeongJo-Medium` covers Hangul but not simplified

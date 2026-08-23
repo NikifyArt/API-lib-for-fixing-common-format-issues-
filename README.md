@@ -160,7 +160,16 @@ $ docfix check notes.md
 
 CJK works with no font file at all, using the CID collections built into the
 PDF generator. The reader supplies those glyphs, so such PDFs are not fully
-self-contained.
+self-contained — pass `--embed-cjk` when they need to be:
+
+```bash
+docfix format notes.md -o out.pdf --embed-cjk
+```
+
+That embeds an installed, open-licensed CJK font instead, so the file renders
+identically anywhere. It costs roughly 10 KB and needs a suitable font on the
+machine; without one it falls back to the CID collections and says so, so asking
+for it can never make CJK worse.
 
 ### Licensing
 

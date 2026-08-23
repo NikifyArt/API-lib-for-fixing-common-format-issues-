@@ -120,6 +120,36 @@ def option_for_cid(
     )
 
 
+# Representative characters per script, used to ask an installed font whether
+# it can stand in for the CID collections.
+CJK_PROBES: dict[str, str] = {
+    "han": "日本世界字",
+    "kana": "ぁあアーン",
+    "hangul": "한국어글",
+}
+
+
+def embeddable_cjk(pool: Pool) -> list[tuple[Family, list[str]]]:
+    """Installed, open-licensed, embeddable fonts that can cover CJK.
+
+    Embedding one of these makes the PDF self-contained, unlike the CID
+    collections, whose glyphs the reader has to supply.
+    """
+    found: list[tuple[Family, list[str]]] = []
+    seen: set[str] = set()
+    for script, probe in CJK_PROBES.items():
+        for family in pool.families_covering(probe):
+            if family.name in seen:
+                for existing, scripts in found:
+                    if existing.name == family.name:
+                        scripts.append(script)
+                break
+            seen.add(family.name)
+            found.append((family, [script]))
+            break
+    return found
+
+
 def base14_option(category: str = "sans") -> FontOption:
     """The last-resort chain when no real font is available.
 
@@ -185,7 +215,8 @@ def resolve_spans(
 
 def build_chain(pool: Pool, families: list[str], fallback: list[str] | None = None,
                 cid: str | None = None,
-                cid_defaults: list[dict] | None = None) -> tuple[list[FontOption], list[str]]:
+                cid_defaults: list[dict] | None = None,
+                embed_cjk: bool = False) -> tuple[list[FontOption], list[str]]:
     """Assemble a fallback chain from family names, in order.
 
     Returns the chain and the names that could not be resolved, so the caller
@@ -222,6 +253,19 @@ def build_chain(pool: Pool, families: list[str], fallback: list[str] | None = No
             chain.append(option_for_family(family, register(family)))
         except FontError:
             continue
+
+    # An embedded CJK font goes ahead of the CID collections so it wins, making
+    # the PDF self-contained. Falls through to CID when nothing suitable is
+    # installed, so asking for this can never make CJK worse.
+    if embed_cjk:
+        for family, _scripts in embeddable_cjk(pool):
+            if family.name.lower() in seen:
+                continue
+            seen.add(family.name.lower())
+            try:
+                chain.append(option_for_family(family, register(family)))
+            except FontError:
+                continue
 
     # A template's own CJK choice goes first, then the catalogue defaults. CID
     # fonts cost nothing to register -- no file, no download -- so including

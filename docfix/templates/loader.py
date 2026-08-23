@@ -67,7 +67,7 @@ def _validate(style: MarkdownStyle, name: str) -> None:
         )
 
 
-VALID_FONT_ROLES = {"body", "heading", "mono", "fallback", "cjk"}
+VALID_FONT_ROLES = {"body", "heading", "mono", "fallback", "cjk", "embed_cjk"}
 
 
 def _validate_fonts(fonts: dict, name: str) -> None:
@@ -93,6 +93,10 @@ def _validate_fonts(fonts: dict, name: str) -> None:
     cjk = fonts.get("cjk")
     if cjk is not None and not isinstance(cjk, str):
         raise TemplateError(f"template {name!r}: 'fonts.cjk' must be a font name")
+
+    embed = fonts.get("embed_cjk")
+    if embed is not None and not isinstance(embed, bool):
+        raise TemplateError(f"template {name!r}: 'fonts.embed_cjk' must be true or false")
 
     for role in ("body", "heading", "mono"):
         spec = fonts.get(role)

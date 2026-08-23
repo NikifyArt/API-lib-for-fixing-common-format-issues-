@@ -664,6 +664,8 @@ class FontContext:
     unavailable: list[str] = field(default_factory=list)
     # Families used without the exact weight or slant requested.
     degraded: set[str] = field(default_factory=set)
+    # Set when embedding a CJK font was requested but none is installed.
+    embed_cjk_unavailable: bool = False
 
     def primary(self, role: str) -> str:
         chain = getattr(self, role) or self.body
@@ -671,10 +673,10 @@ class FontContext:
 
 
 def _role_chain(available, spec: dict, fallback: list[str], cid: str | None,
-                context: FontContext) -> list[FontOption]:
+                context: FontContext, embed_cjk: bool = False) -> list[FontOption]:
     families = _stack(spec.get("family", ""))
     chain, unresolved = build_chain(
-        available, families, fallback, cid, available.catalog.cid_fonts
+        available, families, fallback, cid, available.catalog.cid_fonts, embed_cjk
     )
 
     if not chain:
@@ -702,6 +704,7 @@ def build_font_context(template: Template) -> FontContext:
     fonts = template.fonts or {}
     fallback = [str(name) for name in (fonts.get("fallback") or [])]
     cid = fonts.get("cjk") or None
+    embed_cjk = bool(fonts.get("embed_cjk"))
 
     try:
         available = pool()
@@ -713,8 +716,13 @@ def build_font_context(template: Template) -> FontContext:
         if available is None or not available.families:
             chain = [base14_option(_category(spec.get("family", "")))]
         else:
-            chain = _role_chain(available, spec, fallback, cid, context)
+            chain = _role_chain(available, spec, fallback, cid, context, embed_cjk)
         setattr(context, role, chain)
+
+    if embed_cjk and available is not None:
+        from docfix.fonts.coverage import embeddable_cjk
+
+        context.embed_cjk_unavailable = not embeddable_cjk(available)
 
     # Deduplicate while keeping the order the template implied.
     context.unavailable = list(dict.fromkeys(context.unavailable))
@@ -804,6 +812,16 @@ def coverage_issues(doc: Document, template: Template) -> list[Issue]:
                 "none of the template's fonts are installed here ("
                 + ", ".join(context.unavailable)
                 + "); a substitute is used, so the output will not look as intended",
+                WARNING,
+            )
+        )
+    if context.embed_cjk_unavailable:
+        issues.append(
+            Issue(
+                "font-embed-cjk-unavailable",
+                "embedding a CJK font was requested but no installed font with an "
+                "open licence covers CJK; falling back to the built-in CID "
+                "collections, so the PDF will rely on the reader's own fonts",
                 WARNING,
             )
         )

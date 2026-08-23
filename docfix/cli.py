@@ -117,6 +117,7 @@ def cmd_format(args) -> int:
         template=args.template,
         output=args.output,
         keep_intermediate=args.keep_intermediate,
+        embed_cjk=args.embed_cjk,
     )
     print(f"{result.source_path} -> {result.output_path}  [template: {result.template}]")
     if result.intermediate_path:
@@ -226,6 +227,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes",
         action="store_true",
         help="accept a lossy PDF conversion without being asked",
+    )
+    fmt.add_argument(
+        "--embed-cjk",
+        action="store_true",
+        help="embed an installed CJK font instead of relying on the reader's own, "
+        "making the PDF self-contained (falls back to the built-in CID fonts)",
     )
     fmt.add_argument(
         "--keep-intermediate",

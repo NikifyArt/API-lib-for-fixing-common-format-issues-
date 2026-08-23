@@ -183,6 +183,21 @@ class Pool:
     def by_category(self, category: str) -> list[Family]:
         return [f for f in self.usable_families() if f.category == category]
 
+    def families_covering(self, probe: str, auto_only: bool = True) -> list[Family]:
+        """Families that can render every character of a probe string.
+
+        Coverage is loaded lazily per family, so this is only paid for when
+        something actually asks -- embedding a CJK font, for instance.
+        """
+        found = [
+            family
+            for family in self.usable_families()
+            if (family.auto_selectable if auto_only else True) and family.covers(probe)
+        ]
+        # Widest coverage first: a font with more glyphs is the safer choice
+        # when several qualify.
+        return sorted(found, key=lambda f: -len(f.coverage()))
+
     def fallback_families(self) -> list[Family]:
         """Catalogue-preferred fallbacks that are actually installed and open."""
         out: list[Family] = []

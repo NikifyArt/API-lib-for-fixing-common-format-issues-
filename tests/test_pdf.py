@@ -618,3 +618,134 @@ def test_cjk_needs_no_font_file(tmp_path):
     """CID collections are built into reportlab: no file shipped, none downloaded."""
     lines = _render_lines(["日本語 你好 한국어"], tmp_path)
     assert lines and "\x00" not in lines[0]
+
+
+# --------------------------------------------------------------------------
+# --embed-cjk: self-contained CJK output
+# --------------------------------------------------------------------------
+
+
+def _font_embedding(path):
+    """(base font name -> whether its glyphs are embedded) for page 1."""
+    pypdf = pytest.importorskip("pypdf")
+    page = pypdf.PdfReader(str(path)).pages[0]
+    fonts = page["/Resources"].get("/Font", {})
+    out = {}
+    for key in fonts:
+        font = fonts[key].get_object()
+        descriptor = font.get("/FontDescriptor")
+        if descriptor is None and font.get("/DescendantFonts"):
+            descriptor = font["/DescendantFonts"][0].get_object().get("/FontDescriptor")
+        out[str(font.get("/BaseFont"))] = bool(
+            descriptor
+            and any(k in descriptor for k in ("/FontFile", "/FontFile2", "/FontFile3"))
+        )
+    return out
+
+
+def _cjk_doc():
+    return Document(blocks=[Paragraph(runs=[Run("日本語 你好世界 한국어")])])
+
+
+def _has_embeddable_cjk():
+    from docfix.fonts import pool
+    from docfix.fonts.coverage import embeddable_cjk
+
+    return bool(embeddable_cjk(pool()))
+
+
+def test_default_cjk_uses_unembedded_cid_fonts(tmp_path):
+    """The default costs no font file, but the reader supplies the glyphs."""
+    out = tmp_path / "cid.pdf"
+    pdf_adapter.write_path(_cjk_doc(), load("formal"), str(out))
+    embedding = _font_embedding(out)
+    cid = [name for name in embedding if "Heisei" in name or "HYSMyeongJo" in name]
+    assert cid, "the CID collections should be doing the CJK work by default"
+    assert not any(embedding[name] for name in cid), "CID fonts are not embedded"
+
+
+def test_embed_cjk_produces_a_self_contained_pdf(tmp_path):
+    if not _has_embeddable_cjk():
+        pytest.skip("no open-licensed CJK font installed")
+
+    from docfix.templates import from_dict
+
+    template = load("formal")
+    embedded_template = from_dict(
+        {**{"name": "e"}, "fonts": {**template.fonts, "embed_cjk": True}}
+    )
+    out = tmp_path / "embedded.pdf"
+    pdf_adapter.write_path(_cjk_doc(), embedded_template, str(out))
+
+    embedding = _font_embedding(out)
+    assert any(embedding.values()), "at least one font must carry its own glyphs"
+    assert not [n for n in embedding if "Heisei" in n or "HYSMyeongJo" in n], (
+        "an embedded CJK font should replace the CID collections, not sit beside them"
+    )
+
+
+def test_embed_cjk_still_renders_every_cjk_script(tmp_path):
+    if not _has_embeddable_cjk():
+        pytest.skip("no open-licensed CJK font installed")
+    from docfix.templates import from_dict
+
+    template = from_dict(
+        {"name": "e", "fonts": {**load("formal").fonts, "embed_cjk": True}}
+    )
+    out = tmp_path / "e.pdf"
+    pdf_adapter.write_path(_cjk_doc(), template, str(out))
+    with pdfplumber.open(str(out)) as opened:
+        text = opened.pages[0].extract_text()
+    assert "日本語" in text and "你好世界" in text and "한국어" in text
+    assert "\x00" not in text
+
+
+def test_embed_cjk_only_ever_uses_an_open_licensed_font():
+    """The licence gate is not relaxed for the sake of self-containment."""
+    from docfix.fonts import pool
+    from docfix.fonts.coverage import embeddable_cjk
+
+    for family, _scripts in embeddable_cjk(pool()):
+        assert family.license.open, f"{family.name} embedded without an open licence"
+        assert family.embeddable, f"{family.name} embedded despite its fsType"
+
+
+def test_embed_cjk_falls_back_rather_than_failing(tmp_path):
+    """Asking for it must never make CJK worse than the default."""
+    from docfix.templates import from_dict
+
+    template = from_dict(
+        {"name": "e", "fonts": {**load("minimal").fonts, "embed_cjk": True}}
+    )
+    out = tmp_path / "fb.pdf"
+    pdf_adapter.write_path(_cjk_doc(), template, str(out))
+    with pdfplumber.open(str(out)) as opened:
+        assert "日本語" in (opened.pages[0].extract_text() or "")
+
+
+def test_unavailable_embed_cjk_is_reported(monkeypatch):
+    """When nothing qualifies, say so rather than silently using CID."""
+    from docfix.templates import from_dict
+
+    monkeypatch.setattr("docfix.fonts.coverage.embeddable_cjk", lambda _pool: [])
+    template = from_dict(
+        {"name": "e", "fonts": {**load("formal").fonts, "embed_cjk": True}}
+    )
+    issues = pdf_adapter.coverage_issues(_cjk_doc(), template)
+    assert [i for i in issues if i.rule == "font-embed-cjk-unavailable"]
+
+
+def test_embed_cjk_flag_reaches_the_api(tmp_path):
+    source = tmp_path / "a.md"
+    source.write_text("# T\n\n日本語\n")
+    out = tmp_path / "a.pdf"
+    result = docfix.format_file(str(source), output=str(out), embed_cjk=True)
+    assert out.exists() and result.output_path == str(out)
+
+
+def test_embed_cjk_does_not_leak_into_the_shared_template(tmp_path):
+    """Presets are shared objects; a per-call flag must not mutate them."""
+    source = tmp_path / "a.md"
+    source.write_text("# T\n")
+    docfix.format_file(str(source), output=str(tmp_path / "a.pdf"), embed_cjk=True)
+    assert not load("formal").fonts.get("embed_cjk")
