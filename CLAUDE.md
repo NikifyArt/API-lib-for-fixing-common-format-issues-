@@ -42,10 +42,13 @@ docfix/
   __init__.py            public API: format_file(), format_text(), detect(), list_templates()
   ir.py                  Document/Block/Run dataclasses; walk(), iter_runs(),
                          iter_block_sequences()
+  config.py              docfix.toml / [tool.docfix]: rule control, options, exclude
   templates/
     loader.py            YAML → Template, with validation
-    presets/*.yaml       formal, friendly, technical, minimal
+    presets/*.yaml       formal, friendly, technical, minimal,
+                         cv-classic, cv-modern, cv-compact
   detect/rules.py        STRUCTURE_RULES (on the IR) + SOURCE_RULES (on raw text)
+  cv.py                  CV section/entry model + CV_RULES (report-only)
   fix/normalize.py       safe repairs only
   fonts/
     sfnt.py              standalone TTF reader: fsType, cmap, names, outline kind
@@ -57,8 +60,9 @@ docfix/
     __init__.py          Adapter registry; for_path() dispatches on extension
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
-  cli.py                 format / check / templates
-tests/                   202 tests, 258 with the PDF extras installed
+    docx.py              read + write (python-docx); styles carry the structure
+  cli.py                 format / check / scan / fonts / rules / templates
+tests/                   332 tests, 396 with all extras installed
 ```
 
 ### Things that will bite you
@@ -110,6 +114,71 @@ tests/                   202 tests, 258 with the PDF extras installed
   dependency surfaces as a pyo3 panic, and a raw Rust traceback tells the user
   nothing about what to install. `tests/test_pdf.py` skips on the same basis —
   `pytest.importorskip` does not catch a panic and collection would fail.
+
+### Configuration
+
+- **Every rule declares the ids it emits**, via `@emits(...)` in
+  `detect/rules.py`. One function often emits several — `check_heading_levels`
+  reports both `heading-skip` and `heading-multiple-h1` — and the *ids*, not
+  the function names, are what a config file addresses. A test asserts no
+  emitted id is undeclared.
+- **Disable and severity are a post-filter on Issues**, in `Config.apply`, not
+  a skip of rule functions. That is the right granularity given the above, and
+  it works for all rules with no signature churn.
+- **Options do need to reach the rule**, so every rule takes `(doc, config)`
+  (or `(text, config)` for source rules). Uniform on purpose — a decorator or
+  module-level state would be cleverer and worse to test.
+- **`docfix rules` is the discovery surface.** A rule without a docstring shows
+  a blank summary there, so give every new rule a one-liner.
+- **`tomli` is a real dependency below 3.11**, marked in `pyproject.toml`.
+  Without it `docfix.config` fails to import on 3.10, which CI tests.
+- **Exclude globs use `fnmatch` with `normpath` first.** Walking `.` yields
+  `./vendor/x.md`, and the leading `./` otherwise stops `vendor/**` matching.
+
+### CV layer
+
+- **A CV is a template category, not a format.** It arrives as `.md`, `.docx`
+  or `.pdf` like anything else, so there is no CV adapter and never should be.
+- **Every CV rule is report-only.** Reverse-chronological order, first-person
+  phrasing and weak openers are matters of judgement — rewriting them would
+  change what the document says. No `auto_fixable=True` in `cv.py`, and a test
+  asserts it.
+- **Detection is deliberately conservative**: two or more recognised sections,
+  one of them experience or education. A README with a "Skills" heading is not
+  a CV, and running résumé rules over one is noise. `cv=None` auto-detects,
+  `True`/`False` force it either way.
+- **CV rules are a third rule family**, alongside STRUCTURE_RULES and
+  SOURCE_RULES, but they are *conditional* — `_cv_issues()` in `__init__.py`
+  decides whether they run at all.
+- **The section level is the shallowest heading below the name**, so h2 in a
+  document titled with an h1. `_section_level` falls back to the shallowest
+  present for CVs that skip the title.
+- **An ongoing entry outranks every finished one** in `Entry.sort_key`, so
+  "2010–Present" sorts above "2022–2024" rather than being treated as undated.
+
+### DOCX specifics
+
+- **Styles carry the structure.** `Heading N`, `List Bullet`, `List Number`,
+  `Quote` are what identify a block on the way back in. Writing a blockquote as
+  an indented `Normal` paragraph loses it — use the `Quote` style.
+- **Iterate `body.iterchildren()`, not `.paragraphs`.** Only the element walk
+  preserves document order when tables are interleaved with paragraphs.
+- **No coverage problem, and no licence question.** DOCX stores text as XML, so
+  any character survives; a font name is a request, not an embedding. The
+  adapter therefore declares `coverage_issues=None`.
+- **Word needs `w:eastAsia` set** on a style's `rFonts` or CJK falls back to the
+  reader's default instead of the chosen family.
+- **python-docx has no hyperlink API.** Reading follows `w:hyperlink` children;
+  writing builds the element and relationship by hand.
+- **Word's bullet *and* numbered buttons both produce `List Paragraph`.**
+  Whether it is ordered lives in `w:numPr`, not the style, so the style alone
+  cannot decide. It is read as a bullet — the commoner case — because the
+  alternative silently renumbers a bulleted list, and inventing content is
+  worse than under-reading it.
+- **The round trip is not lossless for everything.** Headings, both list kinds,
+  tables, inline marks and hyperlinks survive. Code blocks, thematic breaks and
+  nested lists do not, because the writer emits no style the reader can key
+  off. See `docs/BUG-REPORTS.md`; do not describe DOCX as lossless.
 
 ### Fonts
 
@@ -170,8 +239,8 @@ the font's own distribution**, never asserted from memory.
 
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
-pip install -e ".[dev,pdf]"   # adds pdfplumber + reportlab
-python -m pytest          # 202 tests (258 with PDF extras), ~4s
+pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
+python -m pytest          # 332 tests (396 with all extras), ~7s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -198,8 +267,10 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
 | 2 | PDF: risk scan, extraction, generation | **done** |
 | 3 | Font pool, script coverage, licence gating | **done** |
-| 4 | DOCX adapter (read + write) | planned |
-| 5 | CV/résumé template layer | planned |
+| 4 | DOCX adapter (read + write) | **done** |
+| 5 | CV/résumé template layer | **done** |
+| 6 | Config file, rule control, batch, `--diff` | **done** |
+| 7 | Reproducible font output | planned |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
 `source_text` if the format is text), register it in `adapters/__init__.py`, and
@@ -211,6 +282,29 @@ the IR is clean, reading back recovers text and rough structure but is lossy.
 Never promise a faithful in-place PDF restyle. The honest workflow, and the one
 the CLI nudges toward, is `--keep-intermediate`: extract to Markdown, let the
 user check and correct it, then format from there.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pushes to `main` and to `claude/**`, and on
+pull requests. Four jobs:
+
+| Job | What it protects |
+| --- | --- |
+| `test` | 3 Python versions × 3 dependency shapes (`dev`, `dev,pdf`, `dev,all`) — the extras are optional, so the package must work without them |
+| `lint` | `ruff` |
+| `packaging` | builds a wheel, asserts the runtime YAML is *inside* it, then installs **that wheel** and runs it |
+| `invariants` | the promises, driven through the CLI: source never modified, idempotent, overwrite refused, non-Latin text survives PDF generation |
+
+Two things that are easy to get wrong here:
+
+- **An editable install cannot prove packaging.** `pip install -e` resolves data
+  files from the source tree, so a missing `package-data` entry is invisible in
+  development. This already shipped once, with `docfix/fonts/catalog.yaml`.
+- **A bare runner has almost no fonts.** The PDF jobs install
+  `fonts-dejavu-core` and `fonts-liberation`, or PDF output would only ever
+  exercise the degraded path. Tests must assert the *contract* — a character
+  renders exactly **or** is reported unrenderable — never that a given machine
+  has a given glyph.
 
 ## Quality gates (skills + hook)
 

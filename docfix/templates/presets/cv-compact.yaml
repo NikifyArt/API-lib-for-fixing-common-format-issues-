@@ -1,0 +1,29 @@
+name: cv-compact
+description: Smallest type and tightest spacing of the CV presets. For a long career that has to fit on two pages.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "*"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+fonts:
+  body:    {family: "Liberation Sans, DejaVu Sans, Noto Sans, sans-serif", size: 9}
+  heading: {family: "Liberation Sans, DejaVu Sans, Noto Sans, sans-serif", size: 12, weight: 700}
+  mono:    {family: "Liberation Mono, DejaVu Sans Mono, monospace", size: 8}
+  fallback: ["DejaVu Sans", "FreeSerif", "Liberation Sans"]
+
+spacing:
+  line_height: 1.15
+  paragraph_after: 4
+  heading_before: 10
+  heading_after: 3
+
+colors:
+  text: "#111111"
+  heading: "#000000"
+  accent: "#444444"
+  muted: "#666666"
+  link: "#0b3d5c"

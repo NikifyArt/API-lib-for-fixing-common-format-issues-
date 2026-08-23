@@ -4,8 +4,10 @@ from docfix.templates import Template, TemplateError, from_dict, list_presets, l
 
 
 def test_all_presets_load():
+    """Not an exact set: adding a preset is meant to be a YAML file and nothing
+    else, so freezing the list here would make that a two-file change."""
     names = list_presets()
-    assert set(names) == {"formal", "friendly", "minimal", "technical"}
+    assert {"formal", "friendly", "minimal", "technical"} <= set(names)
     for name in names:
         template = load(name)
         assert isinstance(template, Template)

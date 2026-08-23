@@ -497,19 +497,44 @@ def _render_lines(texts, tmp_path, template="formal"):
         return (opened.pages[0].extract_text() or "").splitlines()
 
 
+def _unrenderable(text, template="formal"):
+    """Characters no font on *this* machine can render.
+
+    Taken from the resolver itself rather than by string-matching the reported
+    message -- the message contains spaces, so substring matching would count
+    the space character as unrenderable.
+    """
+    context = pdf_adapter.build_font_context(load(template))
+    pdf_adapter._markup([Run(text)], context)
+    return set(context.missing)
+
+
 @pytest.mark.parametrize("script", sorted(SCRIPT_SAMPLES))
-def test_every_script_round_trips_exactly(script, tmp_path):
+def test_every_script_round_trips_or_is_reported(script, tmp_path):
     """The base-14 fonts silently corrupted all of these.
 
     Polish became "Zanónn gnnln jann"; "→ ★ ≈ ✓" became "fi H » 3"; Cyrillic and
-    CJK became boxes -- with no error and no warning. Each must now survive the
-    round trip character for character.
+    CJK became boxes -- with no error and no warning.
+
+    The contract is not "everything always renders" -- that depends on which
+    fonts a machine has, and a bare CI runner has few. It is that a character
+    **either renders exactly or is reported as unrenderable**. Never silently
+    wrong, which is what the base-14 did.
     """
     text = SCRIPT_SAMPLES[script]
     lines = _render_lines([text], tmp_path)
     if not lines:
         pytest.skip("no font on this machine can render this script")
-    assert lines[0] == text
+
+    missing = _unrenderable(text)
+    if not missing:
+        assert lines[0] == text
+        return
+
+    # Whatever could not be rendered was reported; everything else is intact.
+    survived = "".join(char for char in text if char not in missing)
+    got = lines[0].replace("\x00", "")
+    assert got == survived, f"characters were corrupted rather than reported: {missing}"
 
 
 def test_mixed_script_line_keeps_every_run(tmp_path):
@@ -524,9 +549,24 @@ def test_mixed_script_line_keeps_every_run(tmp_path):
     assert lines[0] == text
 
 
-def test_no_notdef_anywhere_in_a_multi_script_document(tmp_path):
-    lines = _render_lines(list(SCRIPT_SAMPLES.values()), tmp_path)
-    assert not any("\x00" in line for line in lines)
+def test_no_notdef_for_anything_the_fonts_do_cover(tmp_path):
+    """A dropped glyph is only acceptable where docfix named that character.
+
+    Asserting merely that *something* was reported would pass even if the
+    resolver named one character and reportlab dropped a different one -- which
+    is exactly the silent-corruption failure the font pool exists to prevent.
+    Each rendered line is checked against its own sample.
+    """
+    samples = list(SCRIPT_SAMPLES.values())
+    lines = _render_lines(samples, tmp_path)
+    assert len(lines) == len(samples), "a sample failed to render at all"
+
+    for sample, line in zip(samples, lines, strict=True):
+        missing = _unrenderable(sample)
+        survived = "".join(char for char in sample if char not in missing)
+        assert line.replace("\x00", "") == survived, (
+            f"dropped glyphs do not match what was reported for {sample!r}"
+        )
 
 
 def test_unrenderable_characters_are_reported_not_dropped(tmp_path):

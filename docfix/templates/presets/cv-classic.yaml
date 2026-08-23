@@ -1,0 +1,31 @@
+name: cv-classic
+description: Serif, conservative, tight leading. The safe choice for law, finance, academia, and anywhere a CV is read on paper.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "*"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+fonts:
+  body:    {family: "EB Garamond, Liberation Serif, DejaVu Serif, serif", size: 10.5}
+  heading: {family: "EB Garamond, Liberation Serif, DejaVu Serif, serif", size: 14, weight: 700}
+  mono:    {family: "Liberation Mono, DejaVu Sans Mono, monospace", size: 9}
+  # Filled in for any character the fonts above cannot render.
+  fallback: ["DejaVu Sans", "FreeSerif", "Liberation Sans"]
+
+# A CV is dense by nature: tighter than a report so more fits on one page.
+spacing:
+  line_height: 1.25
+  paragraph_after: 6
+  heading_before: 14
+  heading_after: 4
+
+colors:
+  text: "#1a1a1a"
+  heading: "#000000"
+  accent: "#333333"
+  muted: "#555555"
+  link: "#0b3d5c"

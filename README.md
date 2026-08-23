@@ -7,14 +7,16 @@ Find and fix common formatting problems in documents. Prettier, but for `.md`,
 safe ones, applies a named template, and writes the result to a **new file**.
 The source is never modified.
 
-> **Status: alpha.** Markdown and PDF are implemented end to end. DOCX and the
-> CV template layer are planned — see [Roadmap](#roadmap).
+> **Status: alpha.** Markdown, PDF and DOCX are implemented end to end, with
+> a CV/résumé layer on top — see [Roadmap](#roadmap).
 
 ## Install
 
 ```bash
 pip install -e ".[dev]"          # Markdown only
 pip install -e ".[dev,pdf]"      # adds PDF support
+pip install -e ".[dev,docx]"     # adds Word support
+pip install -e ".[dev,all]"      # everything
 ```
 
 ## Use it
@@ -24,6 +26,10 @@ docfix check notes.md                      # report problems, write nothing
 docfix format notes.md --template formal   # write notes.formatted.md
 docfix scan report.pdf                     # what would a PDF conversion cost?
 docfix templates                           # list the bundled presets
+docfix check docs/                         # a whole directory
+docfix format docs/ --diff                 # what would change, without writing
+docfix check resume.md --cv                # also apply the résumé conventions
+docfix rules                               # every rule, and what your config does
 docfix fonts                               # which fonts are available, and their licences
 ```
 
@@ -66,6 +72,56 @@ Reported but never rewritten, because fixing them would change what the document
 | `quotes-mixed` | Straight and curly quotes in one document |
 | `table-ragged-row` | A row with the wrong number of cells |
 
+## Configuration
+
+Drop a `docfix.toml` at the root of a project — or a `[tool.docfix]` table in
+`pyproject.toml` — and `docfix check .` needs no flags:
+
+```toml
+template = "technical"
+exclude = ["vendor/**", "**/CHANGELOG.md"]
+
+[rules]
+"quotes-mixed" = false        # off entirely
+"heading-skip" = "error"      # louder
+
+[options]
+"cv-bullet-too-long" = { max_length = 180 }
+```
+
+The nearest config wins, searching upward from the working directory.
+`--config PATH` overrides the search; `--no-config` ignores it. An explicit
+flag always beats the file — `-t formal` wins over `template = "technical"`.
+
+`docfix rules` prints every rule id with a one-line summary, marks the ones
+your config has disabled, and shows any severity overrides and options. Those
+ids are what the `[rules]` and `[options]` tables address.
+
+### Working on many files
+
+`format` and `check` take any mix of files and directories. Directories are
+walked, keeping only extensions an adapter handles and skipping anything
+`exclude` matches (and anything `docfix` itself produced).
+
+```bash
+docfix check .                          # exit 1 if anything is reported
+docfix format docs/ --out-dir built/    # results collected, sources untouched
+docfix format docs/ --diff              # preview; writes nothing
+```
+
+`-o` and `--keep-intermediate` are single-file only — use `--out-dir` for a
+batch.
+
+### Exit codes
+
+Stable, so CI and pre-commit hooks can rely on them:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Clean — nothing reported, nothing would change |
+| `1` | Issues found (`check`), or changes needed (`format --diff`) |
+| `2` | Error — file missing, bad config, unknown template, unsupported format |
+
 ## Templates
 
 A template is a YAML file — fonts, spacing, colors, and Markdown marker
@@ -86,6 +142,56 @@ colors: {text: "#1a1a1a", accent: "#0b3d5c"}
 ```
 
 Pass a path to use your own: `docfix format notes.md -t ./house-style.yaml`.
+
+## CVs and résumés
+
+A CV is a template category, not a file format — it arrives as Markdown, DOCX
+or PDF like anything else. On top of the usual formatting checks, `docfix`
+applies the conventions a résumé is judged by:
+
+```bash
+docfix check resume.md                   # CV rules apply automatically
+docfix format resume.md -o cv.pdf -t cv-classic
+```
+
+Detection is conservative: two or more recognised sections, one of them
+Experience or Education. A README with a "Skills" heading is not a CV. Force
+the rules with `--cv`, or turn them off with `--no-cv`.
+
+| Rule | Problem |
+| --- | --- |
+| `cv-missing-contact` | No email, phone or link near the top |
+| `cv-not-reverse-chronological` | Entries not listed most-recent first |
+| `cv-missing-section` | No Experience or Education section |
+| `cv-summary-placement` | Summary sits after the experience section |
+| `cv-bullet-punctuation` | Some bullets end with a full stop, some don't |
+| `cv-first-person` | Bullets using "I", "my" |
+| `cv-weak-opener` | Bullets opening "Responsible for", "Worked on" |
+| `cv-bullet-too-long` | A bullet that has stopped being scannable |
+
+**These only ever report.** Reverse-chronological order and phrasing are
+matters of judgement, so `docfix` will not rewrite them — the same rule that
+governs headings and quotes elsewhere.
+
+Three presets, tighter than the general ones because a CV has to fit the page:
+`cv-classic` (serif, conservative), `cv-modern` (sans with a colour accent),
+`cv-compact` (smallest, for a long career).
+
+## Working with Word documents
+
+DOCX is structured — styles say what a paragraph *is* — so extraction is
+faithful rather than inferred, and a round trip preserves headings, both list
+kinds, tables, inline formatting and hyperlinks.
+
+```bash
+docfix format report.docx -t formal   # writes report.formatted.docx
+docfix format report.docx -o out.md   # or convert to Markdown
+docfix format notes.md -o out.docx    # or the other way
+```
+
+Unlike PDF there is no glyph-coverage problem: DOCX stores text as XML, so any
+character survives, and a font name is a *request* the reader substitutes if it
+lacks it. Nothing is embedded, so the font licence rules do not apply here.
 
 ## Working with PDFs
 
@@ -218,13 +324,15 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | 1 | IR, templates, Markdown, detect/fix, CLI | **done** |
 | 2 | PDF: risk scan, extraction, generation | **done** |
 | 3 | Font pool, script coverage, licence gating | **done** |
-| 4 | DOCX adapter (read + write) | planned |
-| 5 | CV/résumé template layer | planned |
+| 4 | DOCX adapter (read + write) | **done** |
+| 5 | CV/résumé template layer | **done** |
+| 6 | Config file, rule control, batch, `--diff` | **done** |
+| 7 | Reproducible font output | planned |
 
 ## Development
 
 ```bash
-python -m pytest       # 202 tests, or 258 with the PDF extras
+python -m pytest       # 304 tests, or 396 with all extras
 python -m ruff check . # lint
 ```
 

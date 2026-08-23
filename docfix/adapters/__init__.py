@@ -11,6 +11,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from docfix.adapters import docx as _docx
 from docfix.adapters import markdown as _markdown
 from docfix.adapters import pdf as _pdf
 from docfix.ir import Document
@@ -53,8 +54,19 @@ PDF = Adapter(
     coverage_issues=_pdf.coverage_issues,
 )
 
-# Phases 2 and 4 register the docx and cv adapters here.
-ADAPTERS: tuple[Adapter, ...] = (MARKDOWN, PDF)
+DOCX = Adapter(
+    name="docx",
+    extensions=_docx.EXTENSIONS,
+    read_path=_docx.read_path,
+    write_path=_docx.write_path,
+    # DOCX stores text as XML, so there is no raw source to scan and no font
+    # coverage problem: any character survives whatever font is named.
+    source_text=None,
+    coverage_issues=None,
+)
+
+# The CV template layer registers here next.
+ADAPTERS: tuple[Adapter, ...] = (MARKDOWN, PDF, DOCX)
 
 
 def supported_extensions() -> list[str]:
@@ -74,6 +86,7 @@ def for_path(path: str) -> Adapter:
 
 __all__ = [
     "ADAPTERS",
+    "DOCX",
     "MARKDOWN",
     "PDF",
     "Adapter",

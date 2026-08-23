@@ -1,0 +1,29 @@
+name: cv-modern
+description: Clean sans-serif with a colour accent on section headings. For technology, design, and startups.
+
+markdown:
+  bullet_marker: "-"
+  emphasis_marker: "*"
+  strong_marker: "**"
+  heading_style: atx
+  thematic_break: "---"
+  wrap_width: 0
+
+fonts:
+  body:    {family: "Inter, Noto Sans, Liberation Sans, DejaVu Sans, sans-serif", size: 10}
+  heading: {family: "Inter, Noto Sans, Liberation Sans, DejaVu Sans, sans-serif", size: 14, weight: 600}
+  mono:    {family: "JetBrains Mono, DejaVu Sans Mono, Liberation Mono, monospace", size: 9}
+  fallback: ["DejaVu Sans", "FreeSerif", "Liberation Sans"]
+
+spacing:
+  line_height: 1.35
+  paragraph_after: 7
+  heading_before: 16
+  heading_after: 5
+
+colors:
+  text: "#1f2937"
+  heading: "#1d4ed8"
+  accent: "#2563eb"
+  muted: "#6b7280"
+  link: "#2563eb"
