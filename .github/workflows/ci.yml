@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }}, ${{ matrix.extras }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+        # Both dependency sets: the PDF extras are optional, so the package has
+        # to work without them. Tests that need them skip rather than fail.
+        extras: ["dev", "dev,pdf"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[${{ matrix.extras }}]"
+
+      - name: Test
+        run: python -m pytest -v
+
+      - name: Confirm the optional extras really are optional
+        if: matrix.extras == 'dev'
+        run: |
+          python -c "
+          import importlib
+          for module in ('pdfplumber', 'reportlab'):
+              try:
+                  importlib.import_module(module)
+              except BaseException:
+                  continue  # Any import failure means it is not usable, which is the point.
+              raise SystemExit(f'{module} imports in the base set; the pdf extra is not actually optional')
+          print('pdf extras are genuinely optional')
+          "
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: python -m ruff check .
+
+  package:
+    name: packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install build
+      - run: python -m build --wheel --outdir dist
+
+      # An editable install resolves data files from the source tree, so a
+      # missing package-data entry only shows up in a real wheel. This has
+      # already caught one bug (docfix/fonts/catalog.yaml).
+      - name: Runtime data files must be in the wheel
+        run: |
+          python -c "
+          import glob, zipfile
+          wheel = sorted(glob.glob('dist/*.whl'))[-1]
+          data = [n for n in zipfile.ZipFile(wheel).namelist() if n.endswith(('.yaml', '.yml', '.json'))]
+          print('data files in wheel:')
+          for name in data:
+              print('  ', name)
+          assert any('presets' in n for n in data), 'preset YAML missing from the wheel'
+          assert any('catalog' in n for n in data), 'font catalogue missing from the wheel'
+          "
+
+      # Install the wheel, not the source tree, and confirm it runs.
+      - name: Installed wheel works
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install "$(ls dist/*.whl)[pdf]"
+          /tmp/wheel-env/bin/python -c "
+          from docfix.fonts import load_catalog
+          from docfix.templates import list_presets, load
+          assert load_catalog().licenses, 'font catalogue did not load from the install'
+          assert list_presets(); [load(n) for n in list_presets()]
+          print('packaged install works')
+          "
+          /tmp/wheel-env/bin/docfix --version
+
+  invariants:
+    name: invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev,pdf]"
+
+      # The promises the project makes, checked end to end through the CLI
+      # rather than through the unit tests that also cover them.
+      - name: Source is never modified, output is idempotent, overwrite refused
+        run: |
+          set -euo pipefail
+          printf '#  T  \n\n\n* a\n+ b\n\ntext   \n' > doc.md
+          before=$(md5sum doc.md | cut -d' ' -f1)
+
+          docfix format doc.md -o out1.md -q
+          [ "$before" = "$(md5sum doc.md | cut -d' ' -f1)" ] || { echo "source was modified"; exit 1; }
+
+          docfix format out1.md -o out2.md -q
+          diff out1.md out2.md || { echo "formatting is not idempotent"; exit 1; }
+
+          if docfix format out1.md -o out1.md >/dev/null 2>&1; then
+            echo "writing over the source was allowed"; exit 1
+          fi
+          echo "invariants hold"
+
+      - name: Non-Latin text survives PDF generation
+        run: |
+          set -euo pipefail
+          printf '# T\n\nZa\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 g\xc4\x99\xc5\x9bl\xc4\x85 ja\xc5\xba\xc5\x84\n\n\xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82 \xd0\xbc\xd0\xb8\xd1\x80\n' > multi.md
+          docfix format multi.md -o multi.pdf -t formal -q
+          python -c "
+          import pdfplumber
+          with pdfplumber.open('multi.pdf') as pdf:
+              text = pdf.pages[0].extract_text()
+          print(text)
+          assert '\x00' not in text, 'a glyph was dropped'
+          assert 'Zażółć gęślą jaźń' in text, 'Latin Extended was corrupted'
+          assert 'Привет мир' in text, 'Cyrillic was corrupted'
+          print('non-Latin text survived')
+          "
