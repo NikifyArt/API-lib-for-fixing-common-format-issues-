@@ -26,7 +26,10 @@ docfix check notes.md                      # report problems, write nothing
 docfix format notes.md --template formal   # write notes.formatted.md
 docfix scan report.pdf                     # what would a PDF conversion cost?
 docfix templates                           # list the bundled presets
+docfix check docs/                         # a whole directory
+docfix format docs/ --diff                 # what would change, without writing
 docfix check resume.md --cv                # also apply the résumé conventions
+docfix rules                               # every rule, and what your config does
 docfix fonts                               # which fonts are available, and their licences
 ```
 
@@ -68,6 +71,56 @@ Reported but never rewritten, because fixing them would change what the document
 | `date-inconsistent` | Mixed date formats — matters most on a CV |
 | `quotes-mixed` | Straight and curly quotes in one document |
 | `table-ragged-row` | A row with the wrong number of cells |
+
+## Configuration
+
+Drop a `docfix.toml` at the root of a project — or a `[tool.docfix]` table in
+`pyproject.toml` — and `docfix check .` needs no flags:
+
+```toml
+template = "technical"
+exclude = ["vendor/**", "**/CHANGELOG.md"]
+
+[rules]
+"quotes-mixed" = false        # off entirely
+"heading-skip" = "error"      # louder
+
+[options]
+"cv-bullet-too-long" = { max_length = 180 }
+```
+
+The nearest config wins, searching upward from the working directory.
+`--config PATH` overrides the search; `--no-config` ignores it. An explicit
+flag always beats the file — `-t formal` wins over `template = "technical"`.
+
+`docfix rules` prints every rule id with a one-line summary, marks the ones
+your config has disabled, and shows any severity overrides and options. Those
+ids are what the `[rules]` and `[options]` tables address.
+
+### Working on many files
+
+`format` and `check` take any mix of files and directories. Directories are
+walked, keeping only extensions an adapter handles and skipping anything
+`exclude` matches (and anything `docfix` itself produced).
+
+```bash
+docfix check .                          # exit 1 if anything is reported
+docfix format docs/ --out-dir built/    # results collected, sources untouched
+docfix format docs/ --diff              # preview; writes nothing
+```
+
+`-o` and `--keep-intermediate` are single-file only — use `--out-dir` for a
+batch.
+
+### Exit codes
+
+Stable, so CI and pre-commit hooks can rely on them:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Clean — nothing reported, nothing would change |
+| `1` | Issues found (`check`), or changes needed (`format --diff`) |
+| `2` | Error — file missing, bad config, unknown template, unsupported format |
 
 ## Templates
 
@@ -273,11 +326,13 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | 3 | Font pool, script coverage, licence gating | **done** |
 | 4 | DOCX adapter (read + write) | **done** |
 | 5 | CV/résumé template layer | **done** |
+| 6 | Config file, rule control, batch, `--diff` | **done** |
+| 7 | Reproducible font output | planned |
 
 ## Development
 
 ```bash
-python -m pytest       # 259 tests, or 351 with all extras
+python -m pytest       # 304 tests, or 396 with all extras
 python -m ruff check . # lint
 ```
 

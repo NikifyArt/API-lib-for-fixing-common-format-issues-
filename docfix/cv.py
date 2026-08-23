@@ -15,7 +15,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from docfix.detect.rules import INFO, WARNING, Issue
+from docfix.config import DEFAULT, Config
+from docfix.detect.rules import INFO, WARNING, Issue, emits
 from docfix.ir import (
     Block,
     Heading,
@@ -71,6 +72,7 @@ WEAK_OPENERS = (
 )
 
 # A bullet longer than this reads as a paragraph and stops being scannable.
+# Tunable per project: [tool.docfix.options]."cv-bullet-too-long".max_length
 LONG_BULLET = 220
 
 
@@ -222,7 +224,9 @@ def looks_like_cv(doc) -> bool:
 # --------------------------------------------------------------------------
 
 
-def check_required_sections(doc) -> list[Issue]:
+@emits("cv-missing-section")
+def check_required_sections(doc, config: Config = DEFAULT) -> list[Issue]:
+    """A CV is expected to have Experience or Education."""
     kinds = {section.kind for section in sections(doc) if section.kind}
     if not kinds & {"experience", "education"}:
         return [
@@ -236,7 +240,8 @@ def check_required_sections(doc) -> list[Issue]:
     return []
 
 
-def check_contact_details(doc) -> list[Issue]:
+@emits("cv-missing-contact")
+def check_contact_details(doc, config: Config = DEFAULT) -> list[Issue]:
     """Contact details belong near the top, before the first section."""
     level = _section_level(doc.blocks)
     header: list[Block] = []
@@ -264,7 +269,8 @@ def check_contact_details(doc) -> list[Issue]:
     ]
 
 
-def check_reverse_chronological(doc) -> list[Issue]:
+@emits("cv-not-reverse-chronological")
+def check_reverse_chronological(doc, config: Config = DEFAULT) -> list[Issue]:
     """Dated entries should run most-recent first."""
     issues: list[Issue] = []
     for section in sections(doc):
@@ -287,7 +293,8 @@ def check_reverse_chronological(doc) -> list[Issue]:
     return issues
 
 
-def check_bullet_punctuation(doc) -> list[Issue]:
+@emits("cv-bullet-punctuation")
+def check_bullet_punctuation(doc, config: Config = DEFAULT) -> list[Issue]:
     """Bullets should either all end with a full stop, or none should."""
     bullets = _bullets(doc)
     if len(bullets) < 3:
@@ -307,7 +314,9 @@ def check_bullet_punctuation(doc) -> list[Issue]:
     return []
 
 
-def check_first_person(doc) -> list[Issue]:
+@emits("cv-first-person")
+def check_first_person(doc, config: Config = DEFAULT) -> list[Issue]:
+    """A CV conventionally omits 'I' and 'my'."""
     offenders = [text for text in _bullets(doc) if FIRST_PERSON.search(text)]
     if not offenders:
         return []
@@ -321,7 +330,8 @@ def check_first_person(doc) -> list[Issue]:
     ]
 
 
-def check_weak_openers(doc) -> list[Issue]:
+@emits("cv-weak-opener")
+def check_weak_openers(doc, config: Config = DEFAULT) -> list[Issue]:
     """Bullets should open with what was achieved, not what was assigned."""
     offenders = []
     for text in _bullets(doc):
@@ -344,14 +354,17 @@ def check_weak_openers(doc) -> list[Issue]:
     ]
 
 
-def check_bullet_length(doc) -> list[Issue]:
-    long_ones = [text for text in _bullets(doc) if len(text) > LONG_BULLET]
+@emits("cv-bullet-too-long")
+def check_bullet_length(doc, config: Config = DEFAULT) -> list[Issue]:
+    """A bullet past the limit stops being scannable."""
+    limit = int(config.option("cv-bullet-too-long", "max_length", LONG_BULLET))
+    long_ones = [text for text in _bullets(doc) if len(text) > limit]
     if not long_ones:
         return []
     return [
         Issue(
             "cv-bullet-too-long",
-            f"{len(long_ones)} bullet(s) run past {LONG_BULLET} characters "
+            f"{len(long_ones)} bullet(s) run past {limit} characters "
             "(longest is "
             f"{max(len(t) for t in long_ones)}); long bullets stop being scannable",
             INFO,
@@ -359,7 +372,8 @@ def check_bullet_length(doc) -> list[Issue]:
     ]
 
 
-def check_section_order(doc) -> list[Issue]:
+@emits("cv-summary-placement")
+def check_section_order(doc, config: Config = DEFAULT) -> list[Issue]:
     """A summary, if present, belongs before experience rather than after."""
     order = [section.kind for section in sections(doc) if section.kind]
     if (
@@ -390,12 +404,13 @@ CV_RULES = (
 )
 
 
-def check(doc) -> list[Issue]:
+def check(doc, config: Config | None = None) -> list[Issue]:
     """Run every CV rule, sorted by rule name."""
+    config = config or DEFAULT
     issues: list[Issue] = []
     for rule in CV_RULES:
-        issues.extend(rule(doc))
-    return sorted(issues, key=lambda issue: issue.rule)
+        issues.extend(rule(doc, config))
+    return config.apply(sorted(issues, key=lambda issue: issue.rule))
 
 
 __all__ = [

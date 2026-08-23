@@ -42,6 +42,7 @@ docfix/
   __init__.py            public API: format_file(), format_text(), detect(), list_templates()
   ir.py                  Document/Block/Run dataclasses; walk(), iter_runs(),
                          iter_block_sequences()
+  config.py              docfix.toml / [tool.docfix]: rule control, options, exclude
   templates/
     loader.py            YAML → Template, with validation
     presets/*.yaml       formal, friendly, technical, minimal
@@ -60,7 +61,7 @@ docfix/
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / templates
-tests/                   259 tests, 351 with all extras installed
+tests/                   304 tests, 396 with all extras installed
 ```
 
 ### Things that will bite you
@@ -112,6 +113,26 @@ tests/                   259 tests, 351 with all extras installed
   dependency surfaces as a pyo3 panic, and a raw Rust traceback tells the user
   nothing about what to install. `tests/test_pdf.py` skips on the same basis —
   `pytest.importorskip` does not catch a panic and collection would fail.
+
+### Configuration
+
+- **Every rule declares the ids it emits**, via `@emits(...)` in
+  `detect/rules.py`. One function often emits several — `check_heading_levels`
+  reports both `heading-skip` and `heading-multiple-h1` — and the *ids*, not
+  the function names, are what a config file addresses. A test asserts no
+  emitted id is undeclared.
+- **Disable and severity are a post-filter on Issues**, in `Config.apply`, not
+  a skip of rule functions. That is the right granularity given the above, and
+  it works for all rules with no signature churn.
+- **Options do need to reach the rule**, so every rule takes `(doc, config)`
+  (or `(text, config)` for source rules). Uniform on purpose — a decorator or
+  module-level state would be cleverer and worse to test.
+- **`docfix rules` is the discovery surface.** A rule without a docstring shows
+  a blank summary there, so give every new rule a one-liner.
+- **`tomli` is a real dependency below 3.11**, marked in `pyproject.toml`.
+  Without it `docfix.config` fails to import on 3.10, which CI tests.
+- **Exclude globs use `fnmatch` with `normpath` first.** Walking `.` yields
+  `./vendor/x.md`, and the leading `./` otherwise stops `vendor/**` matching.
 
 ### CV layer
 
@@ -209,7 +230,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 259 tests (351 with all extras), ~8s
+python -m pytest          # 304 tests (396 with all extras), ~9s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -238,6 +259,8 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 3 | Font pool, script coverage, licence gating | **done** |
 | 4 | DOCX adapter (read + write) | **done** |
 | 5 | CV/résumé template layer | **done** |
+| 6 | Config file, rule control, batch, `--diff` | **done** |
+| 7 | Reproducible font output | planned |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
 `source_text` if the format is text), register it in `adapters/__init__.py`, and

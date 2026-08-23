@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from docfix.config import DEFAULT, Config
 from docfix.ir import (
     Document,
     Heading,
@@ -25,6 +26,23 @@ from docfix.ir import (
     plain_text,
     walk,
 )
+
+
+def emits(*rule_ids: str):
+    """Declare the rule ids a check can produce.
+
+    One function often emits several -- `check_heading_levels` reports both
+    `heading-skip` and `heading-multiple-h1` -- and the ids, not the function
+    names, are what a config file addresses. Declaring them lets `docfix rules`
+    show the right identifiers, and lets a test assert none drift.
+    """
+
+    def decorate(func):
+        func.rule_ids = rule_ids
+        return func
+
+    return decorate
+
 
 ERROR = "error"
 WARNING = "warning"
@@ -49,7 +67,8 @@ class Issue:
 # --------------------------------------------------------------------------
 
 
-def check_heading_levels(doc: Document) -> list[Issue]:
+@emits("heading-multiple-h1", "heading-skip")
+def check_heading_levels(doc: Document, config: Config = DEFAULT) -> list[Issue]:
     """Headings should descend one level at a time, with a single H1."""
     issues: list[Issue] = []
     headings = [b for b in walk(doc) if isinstance(b, Heading)]
@@ -79,7 +98,9 @@ def check_heading_levels(doc: Document) -> list[Issue]:
     return issues
 
 
-def check_empty_headings(doc: Document) -> list[Issue]:
+@emits("heading-empty")
+def check_empty_headings(doc: Document, config: Config = DEFAULT) -> list[Issue]:
+    """A heading with no text renders as a gap in the outline."""
     return [
         Issue("heading-empty", "heading has no text", ERROR)
         for block in walk(doc)
@@ -97,7 +118,8 @@ def _mixed_marker_issue(markers: set[str]) -> Issue:
     )
 
 
-def check_list_markers(doc: Document) -> list[Issue]:
+@emits("list-mixed-markers")
+def check_list_markers(doc: Document, config: Config = DEFAULT) -> list[Issue]:
     """A bullet list should use one marker character throughout.
 
     Changing the marker mid-list makes CommonMark start a *new* list, so the
@@ -136,7 +158,9 @@ def check_list_markers(doc: Document) -> list[Issue]:
     return issues
 
 
-def check_image_alt(doc: Document) -> list[Issue]:
+@emits("image-missing-alt")
+def check_image_alt(doc: Document, config: Config = DEFAULT) -> list[Issue]:
+    """An image without alt text is invisible to a screen reader."""
     issues: list[Issue] = []
     for block in walk(doc):
         if isinstance(block, Image) and not block.alt.strip():
@@ -150,7 +174,8 @@ def check_image_alt(doc: Document) -> list[Issue]:
     return issues
 
 
-def check_table_shape(doc: Document) -> list[Issue]:
+@emits("table-ragged-row")
+def check_table_shape(doc: Document, config: Config = DEFAULT) -> list[Issue]:
     """Every row should have as many cells as the header."""
     issues: list[Issue] = []
     for block in walk(doc):
@@ -181,7 +206,8 @@ DATE_STYLES = {
 }
 
 
-def check_date_consistency(doc: Document) -> list[Issue]:
+@emits("date-inconsistent")
+def check_date_consistency(doc: Document, config: Config = DEFAULT) -> list[Issue]:
     """Mixed date formats read as sloppy -- and matter most on a CV."""
     text = " ".join(
         run.text for block in walk(doc) for run in iter_runs(block) if not run.code
@@ -198,7 +224,9 @@ def check_date_consistency(doc: Document) -> list[Issue]:
     return []
 
 
-def check_empty_paragraphs(doc: Document) -> list[Issue]:
+@emits("paragraph-empty")
+def check_empty_paragraphs(doc: Document, config: Config = DEFAULT) -> list[Issue]:
+    """Paragraphs with no content are stray spacing."""
     return [
         Issue(
             "paragraph-empty",
@@ -244,7 +272,9 @@ def _non_code_lines(text: str) -> list[tuple[int, str]]:
     return out
 
 
-def check_trailing_whitespace(text: str) -> list[Issue]:
+@emits("whitespace-trailing")
+def check_trailing_whitespace(text: str, config: Config = DEFAULT) -> list[Issue]:
+    """Spaces at end of line are invisible and meaningless."""
     return [
         Issue(
             "whitespace-trailing",
@@ -258,7 +288,8 @@ def check_trailing_whitespace(text: str) -> list[Issue]:
     ]
 
 
-def check_blank_line_runs(text: str) -> list[Issue]:
+@emits("whitespace-blank-run")
+def check_blank_line_runs(text: str, config: Config = DEFAULT) -> list[Issue]:
     """More than one blank line in a row carries no meaning in Markdown.
 
     Fenced code is scanned inline rather than filtered out first: dropping the
@@ -290,7 +321,9 @@ def check_blank_line_runs(text: str) -> list[Issue]:
     return issues
 
 
-def check_tab_indentation(text: str) -> list[Issue]:
+@emits("whitespace-tab-indent")
+def check_tab_indentation(text: str, config: Config = DEFAULT) -> list[Issue]:
+    """Tab-indented lines render inconsistently between viewers."""
     return [
         Issue(
             "whitespace-tab-indent",
@@ -304,7 +337,9 @@ def check_tab_indentation(text: str) -> list[Issue]:
     ]
 
 
-def check_quote_consistency(text: str) -> list[Issue]:
+@emits("quotes-mixed")
+def check_quote_consistency(text: str, config: Config = DEFAULT) -> list[Issue]:
+    """Mixing straight and curly quotes looks unintentional."""
     body = "\n".join(line for _, line in _non_code_lines(text))
     if CURLY_QUOTES.search(body) and STRAIGHT_QUOTES.search(body):
         return [
@@ -325,12 +360,20 @@ SOURCE_RULES = (
 )
 
 
-def run_all(doc: Document, source: str | None = None) -> list[Issue]:
-    """Run every applicable rule, sorted by line then rule name."""
+def run_all(
+    doc: Document, source: str | None = None, config: Config | None = None
+) -> list[Issue]:
+    """Run every applicable rule, sorted by line then rule name.
+
+    `config` disables rules and overrides severities afterwards rather than
+    skipping rule functions -- one function can emit several rule ids, so
+    skipping it would be the wrong granularity.
+    """
+    config = config or DEFAULT
     issues: list[Issue] = []
     for rule in STRUCTURE_RULES:
-        issues.extend(rule(doc))
+        issues.extend(rule(doc, config))
     if source is not None:
         for source_rule in SOURCE_RULES:
-            issues.extend(source_rule(source))
-    return sorted(issues, key=lambda i: (i.line or 0, i.rule))
+            issues.extend(source_rule(source, config))
+    return config.apply(sorted(issues, key=lambda i: (i.line or 0, i.rule)))

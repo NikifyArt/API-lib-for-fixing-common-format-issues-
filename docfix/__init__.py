@@ -17,6 +17,7 @@ import os
 from dataclasses import dataclass, field, replace
 
 from docfix import adapters
+from docfix.config import Config, ConfigError, discover
 from docfix.detect.rules import Issue, run_all
 from docfix.fix.normalize import normalize
 from docfix.ir import Document
@@ -61,7 +62,10 @@ def default_output_path(path: str) -> str:
     return f"{stem}.{OUTPUT_INFIX}{extension}"
 
 
-def _resolve_template(template: str | Template) -> Template:
+def _resolve_template(template: str | Template | None, config: Config | None) -> Template:
+    """Explicit argument wins, then the config file, then the default."""
+    if template is None:
+        template = (config.template if config else None) or DEFAULT_TEMPLATE
     return template if isinstance(template, Template) else load(template)
 
 
@@ -90,7 +94,7 @@ def scan(path: str):
     return pdf.scan(path)
 
 
-def _cv_issues(doc, cv: bool | None) -> list[Issue]:
+def _cv_issues(doc, cv: bool | None, config: Config | None = None) -> list[Issue]:
     """CV rules, when the document is one.
 
     `cv=None` auto-detects, conservatively: two or more recognised sections,
@@ -105,28 +109,35 @@ def _cv_issues(doc, cv: bool | None) -> list[Issue]:
 
     if cv is None and not cv_layer.looks_like_cv(doc):
         return []
-    return cv_layer.check(doc)
+    return cv_layer.check(doc, config)
 
 
-def detect(path: str, cv: bool | None = None) -> list[Issue]:
+def detect(
+    path: str, cv: bool | None = None, config: Config | None = None
+) -> list[Issue]:
     """Report formatting problems without writing anything.
 
     `cv` controls the résumé rules: None auto-detects, True forces them on,
-    False off.
+    False off. `config` disables rules, overrides severities, and supplies
+    per-rule options.
     """
     adapter = adapters.for_path(path)
     doc = adapter.read_path(path)
     source = adapter.source_text(path) if adapter.source_text else None
-    return run_all(doc, source) + _cv_issues(doc, cv)
+    if cv is None and config is not None:
+        cv = config.cv
+    issues = run_all(doc, source, config) + _cv_issues(doc, cv, config)
+    return config.apply(issues) if config else issues
 
 
 def format_file(
     path: str,
-    template: str | Template = DEFAULT_TEMPLATE,
+    template: str | Template | None = None,
     output: str | None = None,
     keep_intermediate: str | bool | None = None,
     embed_cjk: bool = False,
     cv: bool | None = None,
+    config: Config | None = None,
 ) -> Result:
     """Normalize a document and write the result to a new file.
 
@@ -145,9 +156,15 @@ def format_file(
 
     `cv` controls the résumé rules: None auto-detects, True forces them on,
     False off. They only ever report.
+
+    `config` supplies project settings -- the default template, disabled rules,
+    severity overrides, per-rule options. An explicit argument always wins over
+    the config file.
     """
     reader = adapters.for_path(path)
-    resolved = _resolve_template(template)
+    resolved = _resolve_template(template, config)
+    if cv is None and config is not None:
+        cv = config.cv
     if embed_cjk:
         resolved = _with_embedded_cjk(resolved)
 
@@ -166,11 +183,13 @@ def format_file(
 
     doc = reader.read_path(path)
     source = reader.source_text(path) if reader.source_text else None
-    issues = run_all(doc, source) + _cv_issues(doc, cv)
+    issues = run_all(doc, source, config) + _cv_issues(doc, cv, config)
     if writer.coverage_issues:
         # What the *target* format cannot render, which only the template and
         # the fonts on this machine can decide.
         issues.extend(writer.coverage_issues(doc, resolved))
+    if config:
+        issues = config.apply(issues)
 
     normalized = normalize(doc)
 
@@ -196,11 +215,11 @@ def format_file(
     )
 
 
-def format_text(text: str, template: str | Template = DEFAULT_TEMPLATE) -> str:
+def format_text(text: str, template: str | Template | None = None) -> str:
     """Normalize a Markdown string and return it. Convenience for tests and pipes."""
     from docfix.adapters import markdown
 
-    return markdown.write(normalize(markdown.read(text)), _resolve_template(template))
+    return markdown.write(normalize(markdown.read(text)), _resolve_template(template, None))
 
 
 def looks_like_cv(path: str) -> bool:
@@ -217,6 +236,8 @@ def list_templates() -> list[str]:
 
 __all__ = [
     "DEFAULT_TEMPLATE",
+    "Config",
+    "ConfigError",
     "Document",
     "Issue",
     "Result",
@@ -225,6 +246,7 @@ __all__ = [
     "__version__",
     "default_output_path",
     "detect",
+    "discover",
     "format_file",
     "format_text",
     "list_templates",
