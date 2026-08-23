@@ -7,8 +7,8 @@ Find and fix common formatting problems in documents. Prettier, but for `.md`,
 safe ones, applies a named template, and writes the result to a **new file**.
 The source is never modified.
 
-> **Status: alpha.** Markdown, PDF and DOCX are implemented end to end. The
-> CV template layer is planned — see [Roadmap](#roadmap).
+> **Status: alpha.** Markdown, PDF and DOCX are implemented end to end, with
+> a CV/résumé layer on top — see [Roadmap](#roadmap).
 
 ## Install
 
@@ -26,6 +26,7 @@ docfix check notes.md                      # report problems, write nothing
 docfix format notes.md --template formal   # write notes.formatted.md
 docfix scan report.pdf                     # what would a PDF conversion cost?
 docfix templates                           # list the bundled presets
+docfix check resume.md --cv                # also apply the résumé conventions
 docfix fonts                               # which fonts are available, and their licences
 ```
 
@@ -88,6 +89,40 @@ colors: {text: "#1a1a1a", accent: "#0b3d5c"}
 ```
 
 Pass a path to use your own: `docfix format notes.md -t ./house-style.yaml`.
+
+## CVs and résumés
+
+A CV is a template category, not a file format — it arrives as Markdown, DOCX
+or PDF like anything else. On top of the usual formatting checks, `docfix`
+applies the conventions a résumé is judged by:
+
+```bash
+docfix check resume.md                   # CV rules apply automatically
+docfix format resume.md -o cv.pdf -t cv-classic
+```
+
+Detection is conservative: two or more recognised sections, one of them
+Experience or Education. A README with a "Skills" heading is not a CV. Force
+the rules with `--cv`, or turn them off with `--no-cv`.
+
+| Rule | Problem |
+| --- | --- |
+| `cv-missing-contact` | No email, phone or link near the top |
+| `cv-not-reverse-chronological` | Entries not listed most-recent first |
+| `cv-missing-section` | No Experience or Education section |
+| `cv-summary-placement` | Summary sits after the experience section |
+| `cv-bullet-punctuation` | Some bullets end with a full stop, some don't |
+| `cv-first-person` | Bullets using "I", "my" |
+| `cv-weak-opener` | Bullets opening "Responsible for", "Worked on" |
+| `cv-bullet-too-long` | A bullet that has stopped being scannable |
+
+**These only ever report.** Reverse-chronological order and phrasing are
+matters of judgement, so `docfix` will not rewrite them — the same rule that
+governs headings and quotes elsewhere.
+
+Three presets, tighter than the general ones because a CV has to fit the page:
+`cv-classic` (serif, conservative), `cv-modern` (sans with a colour accent),
+`cv-compact` (smallest, for a long career).
 
 ## Working with Word documents
 
@@ -237,12 +272,12 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | 2 | PDF: risk scan, extraction, generation | **done** |
 | 3 | Font pool, script coverage, licence gating | **done** |
 | 4 | DOCX adapter (read + write) | **done** |
-| 5 | CV/résumé template layer | planned |
+| 5 | CV/résumé template layer | **done** |
 
 ## Development
 
 ```bash
-python -m pytest       # 202 tests, or 258 with the PDF extras
+python -m pytest       # 259 tests, or 351 with all extras
 python -m ruff check . # lint
 ```
 

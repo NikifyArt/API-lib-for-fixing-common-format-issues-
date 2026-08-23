@@ -118,6 +118,7 @@ def cmd_format(args) -> int:
         output=args.output,
         keep_intermediate=args.keep_intermediate,
         embed_cjk=args.embed_cjk,
+        cv=_cv_flag(args),
     )
     print(f"{result.source_path} -> {result.output_path}  [template: {result.template}]")
     if result.intermediate_path:
@@ -129,8 +130,17 @@ def cmd_format(args) -> int:
     return EXIT_OK
 
 
+def _cv_flag(args) -> bool | None:
+    """--cv forces the résumé rules on, --no-cv off, neither auto-detects."""
+    if getattr(args, "cv", False):
+        return True
+    if getattr(args, "no_cv", False):
+        return False
+    return None
+
+
 def cmd_check(args) -> int:
-    issues = docfix.detect(args.file)
+    issues = docfix.detect(args.file, cv=_cv_flag(args))
     print(f"{args.file}: {_summary(issues)}")
     if issues:
         _print_issues(issues, sys.stdout)
@@ -197,6 +207,22 @@ def cmd_templates(args) -> int:
     return EXIT_OK
 
 
+def _add_cv_flags(parser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--cv",
+        action="store_true",
+        help="apply the r\u00e9sum\u00e9 rules (reverse-chronological order, contact "
+        "details, bullet phrasing); they only report, never rewrite",
+    )
+    group.add_argument(
+        "--no-cv",
+        dest="no_cv",
+        action="store_true",
+        help="skip the r\u00e9sum\u00e9 rules even if the document looks like a CV",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="docfix",
@@ -243,12 +269,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="also write the extracted content as Markdown, so it can be checked "
         "or hand-corrected (default: NAME.extracted.md)",
     )
+    _add_cv_flags(fmt)
     fmt.set_defaults(func=cmd_format)
 
     check = subparsers.add_parser(
         "check", help="report issues without writing anything (exit 1 if any are found)"
     )
     check.add_argument("file")
+    _add_cv_flags(check)
     check.set_defaults(func=cmd_check)
 
     scan = subparsers.add_parser(

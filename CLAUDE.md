@@ -46,6 +46,7 @@ docfix/
     loader.py            YAML → Template, with validation
     presets/*.yaml       formal, friendly, technical, minimal
   detect/rules.py        STRUCTURE_RULES (on the IR) + SOURCE_RULES (on raw text)
+  cv.py                  CV section/entry model + CV_RULES (report-only)
   fix/normalize.py       safe repairs only
   fonts/
     sfnt.py              standalone TTF reader: fsType, cmap, names, outline kind
@@ -59,7 +60,7 @@ docfix/
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / templates
-tests/                   202 tests, 258 with the PDF extras installed
+tests/                   259 tests, 351 with all extras installed
 ```
 
 ### Things that will bite you
@@ -111,6 +112,27 @@ tests/                   202 tests, 258 with the PDF extras installed
   dependency surfaces as a pyo3 panic, and a raw Rust traceback tells the user
   nothing about what to install. `tests/test_pdf.py` skips on the same basis —
   `pytest.importorskip` does not catch a panic and collection would fail.
+
+### CV layer
+
+- **A CV is a template category, not a format.** It arrives as `.md`, `.docx`
+  or `.pdf` like anything else, so there is no CV adapter and never should be.
+- **Every CV rule is report-only.** Reverse-chronological order, first-person
+  phrasing and weak openers are matters of judgement — rewriting them would
+  change what the document says. No `auto_fixable=True` in `cv.py`, and a test
+  asserts it.
+- **Detection is deliberately conservative**: two or more recognised sections,
+  one of them experience or education. A README with a "Skills" heading is not
+  a CV, and running résumé rules over one is noise. `cv=None` auto-detects,
+  `True`/`False` force it either way.
+- **CV rules are a third rule family**, alongside STRUCTURE_RULES and
+  SOURCE_RULES, but they are *conditional* — `_cv_issues()` in `__init__.py`
+  decides whether they run at all.
+- **The section level is the shallowest heading below the name**, so h2 in a
+  document titled with an h1. `_section_level` falls back to the shallowest
+  present for CVs that skip the title.
+- **An ongoing entry outranks every finished one** in `Entry.sort_key`, so
+  "2010–Present" sorts above "2022–2024" rather than being treated as undated.
 
 ### DOCX specifics
 
@@ -186,8 +208,8 @@ the font's own distribution**, never asserted from memory.
 
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
-pip install -e ".[dev,pdf]"   # adds pdfplumber + reportlab
-python -m pytest          # 202 tests (258 with PDF extras), ~4s
+pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
+python -m pytest          # 259 tests (351 with all extras), ~8s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -215,7 +237,7 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 2 | PDF: risk scan, extraction, generation | **done** |
 | 3 | Font pool, script coverage, licence gating | **done** |
 | 4 | DOCX adapter (read + write) | **done** |
-| 5 | CV/résumé template layer | planned |
+| 5 | CV/résumé template layer | **done** |
 
 To add a format: write the adapter with `read_path`/`write_path` (plus
 `source_text` if the format is text), register it in `adapters/__init__.py`, and

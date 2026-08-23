@@ -90,12 +90,34 @@ def scan(path: str):
     return pdf.scan(path)
 
 
-def detect(path: str) -> list[Issue]:
-    """Report formatting problems without writing anything."""
+def _cv_issues(doc, cv: bool | None) -> list[Issue]:
+    """CV rules, when the document is one.
+
+    `cv=None` auto-detects, conservatively: two or more recognised sections,
+    one of them experience or education. `True` forces the rules on, `False`
+    off. Every rule is report-only -- reverse-chronological order and phrasing
+    are matters of judgement, and rewriting them would change what the document
+    says.
+    """
+    if cv is False:
+        return []
+    from docfix import cv as cv_layer
+
+    if cv is None and not cv_layer.looks_like_cv(doc):
+        return []
+    return cv_layer.check(doc)
+
+
+def detect(path: str, cv: bool | None = None) -> list[Issue]:
+    """Report formatting problems without writing anything.
+
+    `cv` controls the résumé rules: None auto-detects, True forces them on,
+    False off.
+    """
     adapter = adapters.for_path(path)
     doc = adapter.read_path(path)
     source = adapter.source_text(path) if adapter.source_text else None
-    return run_all(doc, source)
+    return run_all(doc, source) + _cv_issues(doc, cv)
 
 
 def format_file(
@@ -104,6 +126,7 @@ def format_file(
     output: str | None = None,
     keep_intermediate: str | bool | None = None,
     embed_cjk: bool = False,
+    cv: bool | None = None,
 ) -> Result:
     """Normalize a document and write the result to a new file.
 
@@ -119,6 +142,9 @@ def format_file(
     own, making the PDF self-contained. Falls back to the built-in CID
     collections, and reports it, when no suitable open-licensed font is
     installed -- so asking for it can never make CJK worse.
+
+    `cv` controls the résumé rules: None auto-detects, True forces them on,
+    False off. They only ever report.
     """
     reader = adapters.for_path(path)
     resolved = _resolve_template(template)
@@ -140,7 +166,7 @@ def format_file(
 
     doc = reader.read_path(path)
     source = reader.source_text(path) if reader.source_text else None
-    issues = run_all(doc, source)
+    issues = run_all(doc, source) + _cv_issues(doc, cv)
     if writer.coverage_issues:
         # What the *target* format cannot render, which only the template and
         # the fonts on this machine can decide.
@@ -177,6 +203,13 @@ def format_text(text: str, template: str | Template = DEFAULT_TEMPLATE) -> str:
     return markdown.write(normalize(markdown.read(text)), _resolve_template(template))
 
 
+def looks_like_cv(path: str) -> bool:
+    """Whether a document reads as a CV, by the same test `detect` uses."""
+    from docfix import cv as cv_layer
+
+    return cv_layer.looks_like_cv(adapters.for_path(path).read_path(path))
+
+
 def list_templates() -> list[str]:
     """Names of the bundled templates."""
     return list_presets()
@@ -196,5 +229,6 @@ __all__ = [
     "format_text",
     "list_templates",
     "load",
+    "looks_like_cv",
     "scan",
 ]
