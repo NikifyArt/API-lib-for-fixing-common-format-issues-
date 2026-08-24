@@ -1,13 +1,18 @@
 """DOCX adapter: Word documents in and out.
 
 Unlike PDF, DOCX is a structured format: styles name what a paragraph *is*, so
-extraction is faithful rather than inferred. Headings, both list kinds, tables,
-inline marks and hyperlinks survive a round trip.
+extraction is faithful rather than inferred. Everything the IR models survives a
+round trip -- headings (empty ones included), both list kinds with their
+nesting, code blocks with their language, thematic breaks, tables, inline marks
+and hyperlinks.
 
-Known gaps, all because the writer emits no style the reader can key off:
-code blocks come back as plain paragraphs, a thematic break comes back as its
-literal characters, and nested lists are flattened. Word also needs w:numPr to
-distinguish an ordered "List Paragraph" from a bulleted one.
+That works only because each one is written with a style the reader can key off.
+Nesting rides in "List Bullet 2"/"3", code in a created "Code python" style, and
+a thematic break in a bottom border rather than dash characters -- dashes are
+literal content that reads back as a paragraph.
+
+The one remaining ambiguity is Word's own: its bullet and numbered buttons both
+produce "List Paragraph", and only w:numPr says which it was.
 
 Also unlike PDF, there is no font-coverage problem. DOCX stores text as XML, so
 any character survives regardless of the font; a font name is a *request* the
@@ -50,7 +55,61 @@ NUMBER_STYLE = re.compile(r"^List Number", re.IGNORECASE)
 # case, so it is read as one rather than silently renumbering a bullet list.
 LIST_PARAGRAPH_STYLE = re.compile(r"^List Paragraph$", re.IGNORECASE)
 QUOTE_STYLE = re.compile(r"quote", re.IGNORECASE)
-CODE_STYLE = re.compile(r"^(HTML Code|Code|Macro Text)$", re.IGNORECASE)
+# "Code python" carries the fence's language in the style name -- DOCX has
+# nowhere else to put it, and dropping it loses something the author wrote.
+# The language is restricted to a plain identifier so a style name stays sane.
+CODE_STYLE = re.compile(r"^(?:HTML Code|Macro Text|Code)(?: ([\w+#.-]+))?$", re.IGNORECASE)
+SAFE_LANGUAGE = re.compile(r"^[\w+#.-]{1,20}$")
+# "List Bullet 2" is Word's second nesting level. The trailing digit is the
+# only place the depth survives, so it is what rebuilds the nesting on read.
+LIST_LEVEL = re.compile(r"\s(\d)$")
+
+def _is_horizontal_rule(element) -> bool:
+    """Whether an empty paragraph carries the bottom border Word draws a
+    horizontal rule with. There is no thematic-break element in DOCX."""
+    properties = element.find(f"{W_NS}pPr")
+    if properties is None:
+        return False
+    borders = properties.find(f"{W_NS}pBdr")
+    return borders is not None and borders.find(f"{W_NS}bottom") is not None
+
+
+def _list_level(style: str) -> int:
+    """Nesting depth from a list style name; 1 when it names no level."""
+    match = LIST_LEVEL.search(style)
+    return int(match.group(1)) if match else 1
+
+
+def _nest_items(entries: list) -> list:
+    """Rebuild nested lists from flat (level, ordered, item) in document order.
+
+    DOCX has no tree: nesting is carried by the style name alone, so the
+    structure has to be reconstructed rather than read.
+    """
+    top: list = []
+    stack: list = []  # (level, ListBlock)
+
+    for level, ordered, item in entries:
+        # Close any list deeper than this one, or one at the same depth that
+        # is a different kind -- a bullet list does not continue a numbered one.
+        while stack and (
+            stack[-1][0] > level
+            or (stack[-1][0] == level and stack[-1][1].ordered != ordered)
+        ):
+            stack.pop()
+
+        if not stack or stack[-1][0] < level:
+            block = ListBlock(ordered=ordered, items=[])
+            if stack and stack[-1][1].items:
+                stack[-1][1].items[-1].blocks.append(block)
+            else:
+                top.append(block)
+            stack.append((level, block))
+
+        stack[-1][1].items.append(item)
+
+    return top
+
 
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -168,15 +227,26 @@ def read_path(path: str) -> Document:
     source = DocxDocument(path)
     blocks: list[Block] = []
 
-    # Consecutive list paragraphs form one list, so they are accumulated.
-    pending: list[ListItem] = []
-    pending_ordered = False
+    # Consecutive list paragraphs form one list, so they are accumulated with
+    # their depth and rebuilt into a tree when the run ends.
+    pending: list = []  # (level, ordered, ListItem)
 
     def flush_list() -> None:
         nonlocal pending
         if pending:
-            blocks.append(ListBlock(ordered=pending_ordered, items=pending))
+            blocks.extend(_nest_items(pending))
             pending = []
+
+    # Consecutive Code paragraphs are one code block: the writer emits a
+    # paragraph per line, because Word has no multi-line block element.
+    code_lines: list[str] = []
+    code_language: str | None = None
+
+    def flush_code() -> None:
+        nonlocal code_lines
+        if code_lines:
+            blocks.append(CodeBlock(code="\n".join(code_lines), language=code_language))
+            code_lines = []
 
     for child in source.element.body.iterchildren():
         tag = child.tag
@@ -194,10 +264,35 @@ def read_path(path: str) -> Document:
         paragraph = DocxParagraph(child, source)
         runs = _merge(_runs_from_element(child, source))
         style = _style_name(paragraph)
+        text = plain_text(runs)
 
-        if not plain_text(runs).strip():
-            # An empty paragraph is spacing, not content -- unless the style
-            # says it is a horizontal rule.
+        # A code line may legitimately be blank, so the code run is continued
+        # before the empty-paragraph skip below rather than after it.
+        code_match = CODE_STYLE.match(style)
+        if code_match:
+            flush_list()
+            language = code_match.group(1)
+            if code_lines and language != code_language:
+                flush_code()
+            code_language = language
+            code_lines.append(text)
+            continue
+        flush_code()
+
+        if not text.strip():
+            # An empty paragraph is spacing, not content -- unless it carries a
+            # bottom border, which is how Word draws a horizontal rule.
+            if _is_horizontal_rule(child):
+                flush_list()
+                blocks.append(ThematicBreak())
+                continue
+            # An empty *heading* is structure, not spacing: it holds a place in
+            # the outline, and check_empty_headings exists to report it -- which
+            # it cannot do if the reader drops it first.
+            empty_heading = HEADING_STYLE.match(style)
+            if empty_heading:
+                flush_list()
+                blocks.append(Heading(level=min(6, max(1, int(empty_heading.group(1)))), runs=[]))
             continue
 
         heading = HEADING_STYLE.match(style)
@@ -213,22 +308,18 @@ def read_path(path: str) -> Document:
             or LIST_PARAGRAPH_STYLE.match(style)
         ):
             ordered = bool(NUMBER_STYLE.match(style)) and not BULLET_STYLE.match(style)
-            if pending and pending_ordered != ordered:
-                flush_list()
-            pending_ordered = ordered
-            pending.append(ListItem(runs=runs))
+            pending.append((_list_level(style), ordered, ListItem(runs=runs)))
             continue
 
         flush_list()
 
-        if CODE_STYLE.match(style):
-            blocks.append(CodeBlock(code=plain_text(runs)))
-        elif QUOTE_STYLE.search(style):
+        if QUOTE_STYLE.search(style):
             blocks.append(BlockQuote(blocks=[Paragraph(runs=runs)]))
         else:
             blocks.append(Paragraph(runs=runs))
 
     flush_list()
+    flush_code()
 
     properties = source.core_properties
     return Document(
@@ -389,7 +480,56 @@ def _write_runs(paragraph, runs: list[Run], template: Template) -> None:
             added.font.name = mono_family
 
 
-def _write_blocks(document, blocks: list[Block], template: Template) -> None:
+def _ensure_code_style(document, template: Template, language: str | None = None) -> str:
+    """A paragraph style named "Code", or "Code python", created on demand.
+
+    Word ships no code style, and a custom one is better than borrowing a
+    semantically wrong built-in: it survives the round trip, and a user editing
+    the result sees it in Word's own style list. The language rides in the name
+    because DOCX offers nowhere else to keep it.
+    """
+    from docx.enum.style import WD_STYLE_TYPE  # type: ignore[import-not-found]
+    from docx.shared import Pt  # type: ignore[import-not-found]
+
+    name = "Code"
+    if language and SAFE_LANGUAGE.match(language):
+        name = f"Code {language}"
+
+    styles = document.styles
+    try:
+        styles[name]
+        return name
+    except KeyError:
+        pass
+
+    mono = (template.fonts or {}).get("mono", {})
+    style = styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    _apply_font(
+        style,
+        _first_family(mono.get("family", ""), "Consolas"),
+        float(mono.get("size", 9)),
+    )
+    style.paragraph_format.space_after = Pt(0)
+    return name
+
+
+def _add_horizontal_rule(document) -> None:
+    """An empty paragraph with a bottom border -- Word's horizontal rule."""
+    from docx.oxml.ns import qn  # type: ignore[import-not-found]
+    from docx.oxml.shared import OxmlElement  # type: ignore[import-not-found]
+
+    paragraph = document.add_paragraph()
+    borders = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "6")
+    bottom.set(qn("w:space"), "1")
+    bottom.set(qn("w:color"), "auto")
+    borders.append(bottom)
+    paragraph._p.get_or_add_pPr().append(borders)
+
+
+def _write_blocks(document, blocks: list[Block], template: Template, depth: int = 0) -> None:
     from docx.shared import Pt  # type: ignore[import-not-found]
 
     for block in blocks:
@@ -401,21 +541,25 @@ def _write_blocks(document, blocks: list[Block], template: Template) -> None:
             _write_runs(document.add_paragraph(), block.runs, template)
 
         elif isinstance(block, ListBlock):
-            style = "List Number" if block.ordered else "List Bullet"
+            base = "List Number" if block.ordered else "List Bullet"
+            # Word ships levels 1-3 only; deeper nesting is drawn at 3 rather
+            # than falling back to level 1, which would read back as flat.
+            style = base if depth == 0 else f"{base} {min(depth + 1, 3)}"
             for item in block.items:
                 paragraph = document.add_paragraph(style=style)
                 _write_runs(paragraph, item.runs, template)
                 if item.blocks:
-                    _write_blocks(document, item.blocks, template)
+                    _write_blocks(document, item.blocks, template, depth + 1)
 
         elif isinstance(block, CodeBlock):
+            # Styled, not merely monospaced. Word has no multi-line block
+            # element, so a code block is one paragraph per line -- and without
+            # a style saying so, they read back as ordinary prose and every
+            # prose rule then applies to code.
+            style = _ensure_code_style(document, template, block.language)
             for line in block.code.split("\n"):
-                paragraph = document.add_paragraph()
-                run = paragraph.add_run(line)
-                run.font.name = _first_family(
-                    (template.fonts or {}).get("mono", {}).get("family", ""), "Consolas"
-                )
-                run.font.size = Pt(float((template.fonts or {}).get("mono", {}).get("size", 9)))
+                paragraph = document.add_paragraph(style=style)
+                paragraph.add_run(line)
 
         elif isinstance(block, BlockQuote):
             for inner in block.blocks:
@@ -452,7 +596,10 @@ def _write_blocks(document, blocks: list[Block], template: Template) -> None:
                     _write_runs(cells[index].paragraphs[0], cell_runs, template)
 
         elif isinstance(block, ThematicBreak):
-            document.add_paragraph("―" * 30)
+            # A row of dash characters is *content*: it reads back as a
+            # paragraph of dashes, and a second pass would keep it. A bottom
+            # border is how Word actually draws a rule, and carries no text.
+            _add_horizontal_rule(document)
 
 
 def write_path(doc: Document, template: Template, path: str) -> None:

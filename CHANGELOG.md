@@ -12,6 +12,27 @@ under **Changed** with a migration note.
 
 ## Unreleased
 
+### Fixed — DOCX round trip (phase 9)
+
+Three round-trip losses that changed what a document *said*, rather than how it
+looked — the one thing docfix promises not to do.
+
+- **Nested lists were flattened.** Depth now rides in Word's `List Bullet 2`
+  and `List Bullet 3` styles and is rebuilt into a tree on read. Levels beyond
+  3 draw at 3, because falling back to level 1 read back as flat.
+- **Code blocks came back as prose**, which then had every prose rule applied
+  to them. They are written with a created `Code` paragraph style, and the
+  fence's language rides in the style name (`Code python`) since DOCX has
+  nowhere else to keep it. Blank lines inside a block survive, and two adjacent
+  blocks in different languages no longer merge.
+- **A thematic break came back as a row of dash characters** — literal content
+  a second pass would have kept. It is now a bottom border, which is how Word
+  actually draws a rule.
+- **An empty heading vanished.** It is structure, not spacing, and
+  `check_empty_headings` could never report one the reader had already dropped.
+
+Closes BUG-002, BUG-003 and BUG-004.
+
 ### Added — extensibility (phase 8)
 
 - **Registration API.** `register_adapter()`, `register_rule()`,

@@ -181,8 +181,9 @@ Three presets, tighter than the general ones because a CV has to fit the page:
 ## Working with Word documents
 
 DOCX is structured — styles say what a paragraph *is* — so extraction is
-faithful rather than inferred, and a round trip preserves headings, both list
-kinds, tables, inline formatting and hyperlinks.
+faithful rather than inferred. A round trip preserves headings, both list kinds
+with their nesting, code blocks with their language, thematic breaks, tables,
+inline formatting and hyperlinks.
 
 ```bash
 docfix format report.docx -t formal   # writes report.formatted.docx
@@ -401,11 +402,12 @@ types rather than `Any`.
 | 6 | Config file, rule control, batch, `--diff` | **done** |
 | 7 | Reproducible font output | **done** |
 | 8 | Extension API, plugins, `py.typed`, contributor docs | **done** |
+| 9 | DOCX round-trip fidelity: nesting, code, rules, empty headings | **done** |
 
 ## Development
 
 ```bash
-python -m pytest       # 458 tests, or 524 with all extras
+python -m pytest       # 469 tests, or 535 with all extras
 python -m ruff check . # lint
 ```
 
