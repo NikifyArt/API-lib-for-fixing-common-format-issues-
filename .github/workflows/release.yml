@@ -1,0 +1,157 @@
+name: Release
+
+# Publishing is deliberately gated on a tag, not on a push to main: a release
+# is a decision, not a side effect of merging.
+#
+# Authentication is PyPI Trusted Publishing (OIDC). There is no API token in
+# this repository and none should ever be added -- a token is a long-lived
+# secret that can be exfiltrated by any workflow that can read secrets, while
+# an OIDC identity is minted per run and scoped to this repo, workflow and
+# environment. See docs/RELEASING.md for the one-time PyPI-side setup.
+
+on:
+  push:
+    tags: ["v*"]
+  # A dry run against TestPyPI, so the pipeline can be proven before the real
+  # thing. Nothing here publishes to PyPI proper.
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to publish"
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, none]
+
+permissions:
+  contents: read
+
+jobs:
+  # The tag says what it is; this proves it. A release that fails its own test
+  # suite is worse than no release, because it cannot be unpublished.
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
+      - run: pip install -e ".[dev,all]"
+      - run: python -m pytest
+      - run: python -m ruff check .
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install build twine
+      - run: python -m build
+
+      # A tag that disagrees with the packaged version produces a release
+      # nobody can reason about afterwards, so refuse before anything is
+      # uploaded rather than discovering it on PyPI.
+      - name: The tag must match the packaged version
+        id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import glob, os, re
+          wheel = os.path.basename(sorted(glob.glob("dist/*.whl"))[-1])
+          version = wheel.split("-")[1]
+          print(f"version={version}")
+          ref = os.environ.get("GITHUB_REF", "")
+          if ref.startswith("refs/tags/"):
+              tag = ref.removeprefix("refs/tags/").lstrip("v")
+              assert tag == version, f"tag v{tag} does not match packaged version {version}"
+              print(f"tag v{tag} matches the packaged version", file=__import__("sys").stderr)
+          PY
+
+      # The same checks the CI packaging job runs, repeated here because these
+      # are the exact bytes that go out and nobody can replace them afterwards.
+      - name: Runtime data files and py.typed must be in the wheel
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          names = zipfile.ZipFile(sorted(glob.glob("dist/*.whl"))[-1]).namelist()
+          for want in ("templates/presets/", "fonts/catalog.yaml", "fonts/pinned.yaml", "docfix/py.typed"):
+              assert any(want in n for n in names), f"{want} missing from the wheel"
+          print("wheel contents complete")
+          PY
+
+      - name: Metadata must render on PyPI
+        run: python -m twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # TestPyPI, for proving the pipeline without spending the real version number.
+  # A version can never be re-uploaded to PyPI, so rehearsing here is the only
+  # way to find a packaging problem that is still fixable.
+  testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/docfix
+    permissions:
+      id-token: write  # mint the OIDC token; this is what replaces an API token
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/docfix
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)."

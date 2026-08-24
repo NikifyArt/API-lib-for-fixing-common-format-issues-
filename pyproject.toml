@@ -14,10 +14,20 @@ keywords = ["formatting", "markdown", "docx", "pdf", "documents", "templates"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Text Processing :: Fonts",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
+
 dependencies = [
     "markdown-it-py>=3.0",
     "PyYAML>=6.0",
@@ -34,6 +44,14 @@ dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 docfix = "docfix.cli:main"
+# PyPI renders these as the project page's sidebar. Without them an adopter
+# landing on the page has no route to the source, the changelog, or a bug.
+[project.urls]
+Homepage = "https://github.com/NikifyArt/API-lib-for-fixing-common-format-issues-"
+Source = "https://github.com/NikifyArt/API-lib-for-fixing-common-format-issues-"
+Issues = "https://github.com/NikifyArt/API-lib-for-fixing-common-format-issues-/issues"
+Changelog = "https://github.com/NikifyArt/API-lib-for-fixing-common-format-issues-/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/NikifyArt/API-lib-for-fixing-common-format-issues-/blob/main/docs/EXTENDING.md"
 
 [tool.setuptools.packages.find]
 include = ["docfix*"]
