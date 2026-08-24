@@ -820,8 +820,19 @@ def coverage_issues(doc: Document, template: Template) -> list[Issue]:
     """
     context = build_font_context(template)
     for block in walk(doc):
+        # Resolve each run through the role the writer will actually use.
+        # Sending everything through "body" left heading and mono families out
+        # of context.used, so font-not-pinned stayed silent about a heading
+        # rendering in a machine font -- telling the user the output was
+        # reproducible when half of it was not.
+        role = "heading" if isinstance(block, Heading) else "body"
         for run in iter_runs(block):
-            _markup([run], context, "body")
+            _markup([run], context, role)
+        if isinstance(block, CodeBlock) and block.code:
+            # Code never goes through _markup in the writer -- reportlab's
+            # Preformatted takes raw text -- so it is resolved here explicitly
+            # against the mono chain it will be drawn in.
+            _markup([Run(block.code)], context, "mono")
 
     issues: list[Issue] = []
     if context.missing:

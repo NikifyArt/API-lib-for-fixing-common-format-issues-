@@ -17,6 +17,8 @@ import tempfile
 import docfix
 from docfix import adapters
 from docfix.config import ConfigError, discover
+from docfix.fonts.cache import CacheError
+from docfix.plugins import PluginError
 from docfix.templates import TemplateError
 
 EXIT_OK = 0
@@ -693,6 +695,12 @@ def main(argv: list[str] | None = None) -> int:
         adapters.UnsupportedFormatError,
         ImportError,
         ValueError,
+        # A failed font download is the likeliest failure of `fonts install`
+        # -- offline, air-gapped, behind a proxy -- and a traceback tells the
+        # user nothing they can act on.
+        CacheError,
+        # A malformed third-party registration, surfaced by a plugin.
+        PluginError,
     ) as exc:
         print(f"docfix: {exc}", file=sys.stderr)
         return EXIT_ERROR

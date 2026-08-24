@@ -7,6 +7,7 @@ can be found. They locate one rather than committing a binary fixture.
 from __future__ import annotations
 
 import os
+import pathlib
 import struct
 from pathlib import Path
 
@@ -451,3 +452,60 @@ def test_base14_fallback_caps_coverage_at_latin1():
     assert option.can_render("A")
     assert not option.can_render("Ж")
     assert option.use_tags, "base-14 relies on reportlab's own <b>/<i> mapping"
+
+
+# --------------------------------------------------------------------------
+# Findings from the phase-9 checkpoint review
+# --------------------------------------------------------------------------
+
+
+def test_a_family_with_any_system_face_is_not_reported_pinned(tmp_path, monkeypatch):
+    """`pinned` was set from the first face seen, so a family whose remaining
+    faces came from the machine was still reported as fully pinned. pinned.yaml
+    pins a single face of Noto Sans, so this was guaranteed on any machine that
+    also has it installed: half the text would render in machine fonts while
+    `docfix fonts --reproducible` reported success."""
+    from docfix.fonts import registry
+    from docfix.fonts.sfnt import TRUETYPE, FontInfo
+
+    cache = tmp_path / "cache"
+    system = tmp_path / "system"
+    cache.mkdir()
+    system.mkdir()
+
+    faces = [
+        FontInfo(str(cache / "F-Regular.ttf"), "Faux", "Regular", TRUETYPE, 0),
+        FontInfo(str(system / "F-Bold.ttf"), "Faux", "Bold", TRUETYPE, 0),
+    ]
+    for face in faces:
+        pathlib.Path(face.path).write_bytes(b"")
+
+    monkeypatch.setattr(registry.discover, "scan", lambda *a, **k: faces)
+    monkeypatch.setenv("DOCFIX_FONT_CACHE", str(cache))
+    registry.reset_pool()
+
+    pool = registry.build_pool()
+    family = pool.families["faux"]
+    assert set(family.faces) == {"regular", "bold"}
+    assert family.pinned is False, "a family with a system face is not reproducible"
+
+
+def test_a_sibling_directory_is_not_mistaken_for_the_cache(tmp_path, monkeypatch):
+    """A bare startswith also matched `.../fonts-extra`, whose contents are
+    unverified system fonts -- marking those pinned is the one claim the cache
+    exists to make truthfully."""
+    from docfix.fonts import registry
+    from docfix.fonts.sfnt import TRUETYPE, FontInfo
+
+    cache = tmp_path / "fonts"
+    sibling = tmp_path / "fonts-extra"
+    cache.mkdir()
+    sibling.mkdir()
+    face = FontInfo(str(sibling / "X-Regular.ttf"), "Sneaky", "Regular", TRUETYPE, 0)
+    pathlib.Path(face.path).write_bytes(b"")
+
+    monkeypatch.setattr(registry.discover, "scan", lambda *a, **k: [face])
+    monkeypatch.setenv("DOCFIX_FONT_CACHE", str(cache))
+    registry.reset_pool()
+
+    assert registry.build_pool().families["sneaky"].pinned is False

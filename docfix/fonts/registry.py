@@ -255,6 +255,19 @@ def _split_stack(stack: str) -> list[str]:
     return parts
 
 
+def _within(path: str, root: str | None) -> bool:
+    """Whether a font file lives inside the cache directory.
+
+    A bare startswith would also match a sibling like `.../fonts-extra`, whose
+    contents are unverified system fonts -- and marking those pinned is exactly
+    the claim the cache exists to make truthfully.
+    """
+    if not root:
+        return False
+    resolved = os.path.realpath(path)
+    return resolved == root or resolved.startswith(root.rstrip(os.sep) + os.sep)
+
+
 def build_pool(
     extra_dirs: list[str] | None = None,
     catalog: Catalog | None = None,
@@ -278,9 +291,7 @@ def build_pool(
             )
             continue
 
-        from_cache = bool(
-            cache_root and os.path.realpath(info.path).startswith(cache_root)
-        )
+        from_cache = _within(info.path, cache_root)
 
         key = info.family.lower().strip()
         family = pool.families.get(key)
@@ -293,7 +304,14 @@ def build_pool(
             )
             pool.families[key] = family
         # Keep the first face seen for a style; directories are walked in order.
-        family.faces.setdefault(info.style, info)
+        kept = family.faces.setdefault(info.style, info)
+        # "Pinned" has to mean *every* face came from the cache, not just the
+        # first one seen. pinned.yaml pins a single face of Noto Sans, so on any
+        # machine that also has it installed the bold and italic faces come from
+        # the system -- and reporting the family as pinned would tell the user
+        # the output is reproducible while machine fonts render half of it.
+        if kept is info and not from_cache:
+            family.pinned = False
 
     return pool
 

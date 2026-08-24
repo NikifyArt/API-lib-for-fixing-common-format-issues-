@@ -68,7 +68,7 @@ docfix/
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / scan / fonts / rules / templates
-tests/                   458 tests, 524 with all extras installed
+tests/                   486 tests, 553 with all extras installed
 ```
 
 ### Things that will bite you
@@ -236,10 +236,24 @@ executable; keep them that way.
   cannot decide. It is read as a bullet — the commoner case — because the
   alternative silently renumbers a bulleted list, and inventing content is
   worse than under-reading it.
-- **The round trip is not lossless for everything.** Headings, both list kinds,
-  tables, inline marks and hyperlinks survive. Code blocks, thematic breaks and
-  nested lists do not, because the writer emits no style the reader can key
-  off. See `docs/BUG-REPORTS.md`; do not describe DOCX as lossless.
+- **Everything the IR models survives the round trip** — headings (empty ones
+  included), both list kinds *with their nesting*, code blocks with their
+  language, thematic breaks, tables, inline marks and hyperlinks. Getting there
+  meant giving each one a style the reader can key off, which is the general
+  rule: **if the writer emits no style, the reader cannot tell what it was.**
+  - Nesting rides in Word's `List Bullet 2`/`3`; `_nest_items` rebuilds the
+    tree, since DOCX stores no tree. Beyond level 3 it draws at 3, because
+    falling back to 1 would read back flat.
+  - Code uses a created `Code` paragraph style, with the language in the name
+    (`Code python`) — DOCX has nowhere else to keep it. One paragraph per line,
+    so code paragraphs are collected *before* the empty-paragraph skip or a
+    blank line inside a block is lost.
+  - A thematic break is a bottom border, not a row of dashes. Dashes are
+    literal content: they read back as a paragraph and a second pass keeps them.
+  - An empty heading is structure, not spacing, and `check_empty_headings`
+    cannot report one the reader dropped.
+  The remaining loss is the `w:numPr` ambiguity above. See `docs/BUG-REPORTS.md`
+  (BUG-002/003/004).
 
 ### Fonts
 
@@ -328,7 +342,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 458 tests (524 with all extras), ~9s
+python -m pytest          # 486 tests (553 with all extras), ~9s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -346,9 +360,13 @@ Add both when you add an adapter. Also assert the source file is untouched.
 
 Two more, added in phase 8:
 
-- **`docs/EXTENDING.md`'s examples are executable.** They are the first thing an
-  adopter runs. Run them when you change the extension API; a doc that no longer
-  works is a worse first impression than no doc.
+- **`docs/EXTENDING.md`'s examples are pinned by `tests/test_extending_docs.py`.**
+  They are the first thing an adopter runs, so every API call the doc makes is
+  executed in the shape the doc makes it. The snippets elide bodies with `...`,
+  so the file cannot be exec'd verbatim — the test carries the same calls
+  instead. Change the extension API and that test tells you which examples
+  went stale. It also caught the doc teaching a `source_text=lambda ...` that
+  fails the project's own lint.
 - **Malformed input gets tested with malformed input.** `tests/test_sfnt_robustness.py`
   builds corrupt fonts byte by byte rather than asserting that the parser is
   careful. That is how BUG-007 was found, and the interesting part of such a
@@ -370,6 +388,7 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 6 | Config file, rule control, batch, `--diff` | **done** |
 | 7 | Reproducible font output | **done** |
 | 8 | Extension API, plugins, `py.typed`, contributor docs | **done** |
+| 9 | DOCX round-trip fidelity: nesting, code, rules, empty headings | **done** |
 
 To add a format **that ships with docfix**: write the adapter with
 `read_path`/`write_path` (plus `source_text` if the format is text), add it to

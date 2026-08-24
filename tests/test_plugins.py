@@ -423,3 +423,72 @@ def test_the_deprecated_alias_includes_registered_extensions():
 def test_an_unknown_module_attribute_still_raises_attribute_error():
     with pytest.raises(AttributeError):
         _ = adapters.no_such_thing
+
+
+# --------------------------------------------------------------------------
+# Findings from the phase-9 checkpoint review
+# --------------------------------------------------------------------------
+
+
+def test_an_adapter_missing_source_text_is_refused_not_crashed_on(tmp_path):
+    """The pipeline dereferences source_text and coverage_issues, so accepting
+    a duck-typed object without them traded a clear message for an
+    AttributeError the CLI does not catch."""
+    from types import SimpleNamespace
+
+    partial = SimpleNamespace(
+        name="rtf",
+        extensions=(".rtf",),
+        read_path=lambda path: Document(blocks=[]),
+        write_path=lambda doc, template, path: None,
+    )
+    with pytest.raises(plugins.PluginError, match="source_text"):
+        docfix.register_adapter(partial)
+
+
+def test_an_upper_case_extension_is_refused():
+    """for_path lowercases the file's extension, so '.RTF' would be advertised
+    by supported_extensions() and never match anything."""
+    with pytest.raises(plugins.PluginError, match="lower case"):
+        docfix.register_adapter(make_adapter(extensions=(".RTF",)))
+
+
+def test_unregistering_before_discovery_still_removes_a_plugin(plugin_path):
+    """Unregistering before anything triggered lazy loading was a silent no-op,
+    and the plugin then registered itself on the next lookup."""
+    install_plugin_distribution(
+        plugin_path,
+        textwrap.dedent(
+            """
+            import docfix
+            from docfix.adapters import Adapter
+            from docfix.ir import Document
+
+            ACME = Adapter(
+                name="acme",
+                extensions=(".acme",),
+                read_path=lambda path: Document(blocks=[]),
+                write_path=lambda doc, template, path: None,
+            )
+
+            def register():
+                docfix.register_adapter(ACME)
+            """
+        ),
+        "[docfix.plugins]\nacme = acme_docfix:register\n",
+    )
+
+    assert docfix.unregister_adapter("acme") is True, "the plugin was not there to remove"
+    assert ".acme" not in adapters.supported_extensions(), "it came back"
+
+
+def test_a_forced_reload_does_not_duplicate_errors(plugin_path):
+    install_plugin_distribution(
+        plugin_path,
+        "def register():\n    raise RuntimeError('broken')\n",
+        "[docfix.plugins]\nacme = acme_docfix:register\n",
+    )
+    plugins.load_plugins()
+    plugins.load_plugins(force=True)
+    plugins.load_plugins(force=True)
+    assert len(plugins.plugin_errors()) == 1, plugins.plugin_errors()

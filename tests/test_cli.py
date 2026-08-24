@@ -234,3 +234,21 @@ def test_rules_lists_a_plugin_rule_and_marks_it(capsys):
         assert "[plugin]" in out
     finally:
         plugins.reset()
+
+
+def test_a_failed_font_download_is_a_message_not_a_traceback(capsys):
+    """CacheError was not in main()'s except list, so the likeliest failure of
+    `fonts install` -- offline, air-gapped, behind a proxy -- printed a raw
+    Python traceback."""
+    from unittest.mock import patch
+
+    from docfix.fonts.cache import CacheError
+
+    with patch(
+        "docfix.fonts.cache.install",
+        side_effect=CacheError("could not download https://x/y.ttf: no route to host"),
+    ):
+        code = main(["fonts", "install"])
+
+    assert code == EXIT_ERROR
+    assert "no route to host" in capsys.readouterr().err

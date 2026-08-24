@@ -170,7 +170,7 @@ in `check()` and hand them to the rules.
 ### BUG-004 — an empty heading vanishes from a DOCX
 
 - **Date:** 2026-08-23
-- **Status:** open
+- **Status:** fixed
 - **Severity:** annoying
 - **Found by:** the `push-checkpoint` review
 
@@ -186,10 +186,19 @@ following the empty heading is silently absorbed into the previous section.
 The comment at the discard site promises a style check that was never written.
 Fix: examine the style before discarding an empty paragraph.
 
+**Resolution**
+
+Fixed in phase 9. The reader still skips an empty paragraph as spacing, but it
+now checks the style first: an empty paragraph whose style is `Heading N` is
+kept as a `Heading` with no runs. An empty heading is structure, not spacing --
+it holds a place in the outline, and `check_empty_headings` exists to report
+one, which it cannot do if the reader has already dropped it. A plain empty
+paragraph is still discarded; there is a test for each direction.
+
 ### BUG-003 — nested lists are flattened by the DOCX writer
 
 - **Date:** 2026-08-23
-- **Status:** open
+- **Status:** fixed
 - **Severity:** annoying
 - **Reproducible:** every time
 - **Found by:** the `push-checkpoint` review
@@ -205,10 +214,16 @@ lost.
 Word needs an indent level (`w:ind`, or a numbering level) on the nested
 paragraphs. Larger than a checkpoint fix, so it is recorded rather than rushed.
 
+**Resolution**
+
+Fixed in phase 9. Depth rides in the style name -- Word's `List Bullet 2`
+and `List Bullet 3` -- and `_nest_items` rebuilds the tree on read. Levels
+beyond 3 draw at 3 rather than falling back to 1, which read back as flat.
+
 ### BUG-002 — code blocks and thematic breaks do not survive a DOCX round trip
 
 - **Date:** 2026-08-23
-- **Status:** open
+- **Status:** fixed
 - **Severity:** annoying
 - **Reproducible:** every time
 - **Found by:** the `push-checkpoint` review
@@ -227,6 +242,13 @@ thirty literal `―` characters, which read back as an ordinary paragraph, so
 Both need the writer to apply a style the reader already recognises. The
 adapter docstring and CLAUDE.md have been corrected in the meantime so neither
 claims a lossless round trip.
+
+**Resolution**
+
+Fixed in phase 9. Code blocks are written with a created `Code` paragraph
+style (the language rides in the name, `Code python`), and a thematic break
+is a bottom border rather than a row of dash characters -- which was literal
+content a second pass would have kept.
 
 ### BUG-001 — cross-format output writes the wrong format, silently
 

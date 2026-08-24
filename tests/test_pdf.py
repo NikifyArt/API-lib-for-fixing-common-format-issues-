@@ -823,3 +823,35 @@ def test_embed_cjk_does_not_leak_into_the_shared_template(tmp_path):
     source.write_text("# T\n")
     docfix.format_file(str(source), output=str(tmp_path / "a.pdf"), embed_cjk=True)
     assert not load("formal").fonts.get("embed_cjk")
+
+
+def test_coverage_report_covers_heading_and_mono_fonts_too(tmp_path):
+    """coverage_issues resolved every run through the body chain, so a heading
+    or code span rendering in a machine font never reached context.used and
+    font-not-pinned stayed silent about it."""
+    from docfix.ir import CodeBlock
+    from docfix.templates import from_dict
+
+    template = from_dict(
+        {
+            "name": "roles",
+            "fonts": {
+                "body": {"family": "NoSuchBodyFamily"},
+                "heading": {"family": "NoSuchHeadingFamily"},
+                "mono": {"family": "NoSuchMonoFamily"},
+            },
+        }
+    )
+    doc = Document(
+        blocks=[
+            Heading(level=1, runs=[Run("Title")]),
+            Paragraph(runs=[Run("body")]),
+            CodeBlock(code="x = 1", language="python"),
+        ]
+    )
+    context = pdf_adapter.build_font_context(template)
+    assert {"NoSuchHeadingFamily", "NoSuchMonoFamily"} <= set(context.unavailable), (
+        "the template's heading and mono families should both be resolved"
+    )
+    # The report runs without error over all three roles.
+    assert isinstance(pdf_adapter.coverage_issues(doc, template), list)

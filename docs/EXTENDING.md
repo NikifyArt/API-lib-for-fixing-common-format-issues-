@@ -123,13 +123,17 @@ def read_path(path: str) -> Document:
 def write_path(doc: Document, template, path: str) -> None:
     ...
 
+def source_text(path: str) -> str:
+    # Raw text for the source-level rules; omit the field for a binary format.
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
 RTF = Adapter(
     name="rtf",
     extensions=(".rtf",),
     read_path=read_path,
     write_path=write_path,
-    # Raw text for the source-level rules, or omit for a binary format.
-    source_text=lambda path: open(path, encoding="utf-8").read(),
+    source_text=source_text,
 )
 
 docfix.register_adapter(RTF)
@@ -172,6 +176,9 @@ acme = "acme_docfix:register"
 ```python
 # acme_docfix.py
 import docfix
+
+from .adapters import RTF                 # the Adapter from section 3
+from .rules import check_weasel_words     # the rule from section 2
 
 def register():
     docfix.register_adapter(RTF)
