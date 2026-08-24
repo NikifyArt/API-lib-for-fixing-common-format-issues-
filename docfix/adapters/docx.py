@@ -253,6 +253,7 @@ def read_path(path: str) -> Document:
 
         if tag == f"{W_NS}tbl":
             flush_list()
+            flush_code()
             table = _table_block(DocxTable(child, source))
             if table is not None:
                 blocks.append(table)
@@ -560,6 +561,10 @@ def _write_blocks(document, blocks: list[Block], template: Template, depth: int 
             for line in block.code.split("\n"):
                 paragraph = document.add_paragraph(style=style)
                 paragraph.add_run(line)
+            # Close the block. Without a boundary two adjacent blocks in the
+            # same language read back as one, since every line is just another
+            # Code paragraph. The reader skips this as spacing.
+            document.add_paragraph()
 
         elif isinstance(block, BlockQuote):
             for inner in block.blocks:
@@ -575,7 +580,7 @@ def _write_blocks(document, blocks: list[Block], template: Template, depth: int 
                         paragraph.paragraph_format.left_indent = Pt(24)
                     _write_runs(paragraph, inner.runs, template)
                 else:
-                    _write_blocks(document, [inner], template)
+                    _write_blocks(document, [inner], template, depth)
 
         elif isinstance(block, Table):
             columns = len(block.header) or (len(block.rows[0]) if block.rows else 0)

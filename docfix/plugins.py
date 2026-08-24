@@ -58,7 +58,17 @@ _loaded = False
 
 
 def _check_adapter(adapter: Any) -> None:
-    for attribute in ("name", "extensions", "read_path", "write_path"):
+    for attribute in (
+        "name",
+        "extensions",
+        "read_path",
+        "write_path",
+        # The pipeline reads these unconditionally. Omitting them from the
+        # check traded a clear message here for an AttributeError deep in
+        # format_file, which the CLI does not catch.
+        "source_text",
+        "coverage_issues",
+    ):
         if not hasattr(adapter, attribute):
             raise PluginError(
                 f"adapter is missing {attribute!r}; it must be a docfix.adapters.Adapter "
@@ -73,6 +83,12 @@ def _check_adapter(adapter: Any) -> None:
             raise PluginError(
                 f"adapter {adapter.name!r}: extension {extension!r} must be a string "
                 "beginning with a dot, like '.rtf'"
+            )
+        if extension != extension.lower():
+            # for_path lowercases the file's extension before comparing, so an
+            # upper-case one would be advertised and never match.
+            raise PluginError(
+                f"adapter {adapter.name!r}: extension {extension!r} must be lower case"
             )
     for attribute in ("read_path", "write_path"):
         if not callable(getattr(adapter, attribute)):
@@ -108,6 +124,7 @@ def unregister_adapter(name: str) -> bool:
     Built-in adapters cannot be removed this way -- register one with the same
     extensions to override them instead.
     """
+    load_plugins()
     for index, existing in enumerate(_adapters):
         if existing.name == name:
             del _adapters[index]
@@ -154,6 +171,7 @@ def unregister_rule(rule: Callable, *, family: str = "structure") -> bool:
     """Remove a registered rule. Returns whether one was removed."""
     if family not in RULE_FAMILIES:
         raise PluginError(f"unknown rule family {family!r}")
+    load_plugins()
     try:
         _rules[family].remove(rule)
     except ValueError:
@@ -187,6 +205,9 @@ def load_plugins(*, force: bool = False) -> tuple[str, ...]:
     # Set before dispatching: a plugin that itself imports docfix would
     # otherwise re-enter this and run every plugin a second time.
     _loaded = True
+    # A forced reload re-runs every plugin, so the previous run's failures would
+    # otherwise be reported twice.
+    _errors.clear()
 
     from importlib.metadata import entry_points
 

@@ -407,7 +407,7 @@ types rather than `Any`.
 ## Development
 
 ```bash
-python -m pytest       # 469 tests, or 535 with all extras
+python -m pytest       # 486 tests, or 553 with all extras
 python -m ruff check . # lint
 ```
 

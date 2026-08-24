@@ -20,6 +20,7 @@ from docfix.ir import (  # noqa: E402
     Document,
     Heading,
     ListBlock,
+    ListItem,
     Paragraph,
     Run,
     Table,
@@ -437,3 +438,45 @@ def test_a_plain_empty_paragraph_is_still_spacing(tmp_path):
     original = Document(blocks=[Paragraph(runs=[]), Paragraph(runs=[Run("x")])])
     back, _ = write_and_read(original, tmp_path)
     assert len(back.blocks) == 1
+
+
+def test_a_code_block_before_a_table_keeps_its_place(tmp_path):
+    """The table branch flushed the pending list but not the pending code, so
+    the table was emitted first and the two swapped on every round trip."""
+    original = Document(
+        blocks=[
+            CodeBlock(code="print(1)", language="python"),
+            Table(header=[[Run("A")]], rows=[[[Run("1")]]]),
+            Paragraph(runs=[Run("after")]),
+        ]
+    )
+    back, _ = write_and_read(original, tmp_path)
+    assert [type(b).__name__ for b in back.blocks] == ["CodeBlock", "Table", "Paragraph"]
+
+
+def test_adjacent_code_blocks_in_the_same_language_stay_separate(tmp_path):
+    """Every line is just another Code paragraph, so without a boundary two
+    blocks in one language fused. The different-language case caught nothing."""
+    original = Document(
+        blocks=[CodeBlock(code="a", language="python"), CodeBlock(code="b", language="python")]
+    )
+    back, _ = write_and_read(original, tmp_path)
+    code = [b for b in back.blocks if isinstance(b, CodeBlock)]
+    assert [c.code for c in code] == ["a", "b"]
+
+
+def test_a_list_inside_a_blockquote_inside_a_list_keeps_its_depth(tmp_path):
+    """The blockquote branch recursed without forwarding depth, so the inner
+    list was written at level 1 and read back lifted out of the quote."""
+    inner = ListBlock(ordered=False, items=[ListItem(runs=[Run("deep")])])
+    original = Document(
+        blocks=[
+            ListBlock(
+                ordered=False,
+                items=[ListItem(runs=[Run("outer")], blocks=[BlockQuote(blocks=[inner])])],
+            )
+        ]
+    )
+    back, _ = write_and_read(original, tmp_path)
+    assert isinstance(back.blocks[0], ListBlock)
+    assert len(back.blocks[0].items) == 1, "the nested list was lifted to the top level"

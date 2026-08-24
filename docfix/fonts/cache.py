@@ -115,14 +115,25 @@ def digest(path: str) -> str:
 
 
 def _fetch(url: str, destination: str) -> None:
+    """Download to a temporary name, then move it into place.
+
+    Writing straight to the destination leaves a truncated file behind when the
+    connection drops mid-stream, and nothing re-checks a checksum after install
+    -- so a partial font that still parses would be used, and reported as
+    pinned. Only a complete download is ever visible under the real name.
+    """
+    partial = f"{destination}.part"
     try:
         with (
             urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response,
-            open(destination, "wb") as handle,
+            open(partial, "wb") as handle,
         ):
             while chunk := response.read(CHUNK):
                 handle.write(chunk)
+        os.replace(partial, destination)
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        with contextlib.suppress(OSError):
+            os.remove(partial)
         raise CacheError(f"could not download {url}: {exc}") from exc
 
 

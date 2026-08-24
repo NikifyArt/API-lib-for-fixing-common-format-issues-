@@ -188,9 +188,12 @@ Fix: examine the style before discarding an empty paragraph.
 
 **Resolution**
 
-Fixed in phase 9. An empty paragraph is still skipped as spacing, but a
-bottom border now marks a thematic break, and code paragraphs are collected
-before the empty-paragraph skip so a blank line inside a code block survives.
+Fixed in phase 9. The reader still skips an empty paragraph as spacing, but it
+now checks the style first: an empty paragraph whose style is `Heading N` is
+kept as a `Heading` with no runs. An empty heading is structure, not spacing --
+it holds a place in the outline, and `check_empty_headings` exists to report
+one, which it cannot do if the reader has already dropped it. A plain empty
+paragraph is still discarded; there is a test for each direction.
 
 ### BUG-003 — nested lists are flattened by the DOCX writer
 

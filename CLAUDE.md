@@ -68,7 +68,7 @@ docfix/
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / scan / fonts / rules / templates
-tests/                   469 tests, 535 with all extras installed
+tests/                   486 tests, 553 with all extras installed
 ```
 
 ### Things that will bite you
@@ -342,7 +342,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 469 tests (535 with all extras), ~9s
+python -m pytest          # 486 tests (553 with all extras), ~9s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -360,9 +360,13 @@ Add both when you add an adapter. Also assert the source file is untouched.
 
 Two more, added in phase 8:
 
-- **`docs/EXTENDING.md`'s examples are executable.** They are the first thing an
-  adopter runs. Run them when you change the extension API; a doc that no longer
-  works is a worse first impression than no doc.
+- **`docs/EXTENDING.md`'s examples are pinned by `tests/test_extending_docs.py`.**
+  They are the first thing an adopter runs, so every API call the doc makes is
+  executed in the shape the doc makes it. The snippets elide bodies with `...`,
+  so the file cannot be exec'd verbatim — the test carries the same calls
+  instead. Change the extension API and that test tells you which examples
+  went stale. It also caught the doc teaching a `source_text=lambda ...` that
+  fails the project's own lint.
 - **Malformed input gets tested with malformed input.** `tests/test_sfnt_robustness.py`
   builds corrupt fonts byte by byte rather than asserting that the parser is
   careful. That is how BUG-007 was found, and the interesting part of such a

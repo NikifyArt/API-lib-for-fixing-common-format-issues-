@@ -191,11 +191,34 @@ def test_an_unreachable_url_is_reported_not_crashed(tmp_path):
 # --------------------------------------------------------------------------
 
 
+def _real_cache_dir() -> str:
+    """Where `docfix fonts install` actually writes, ignoring test isolation.
+
+    The fixtures below point DOCFIX_FONT_CACHE at a temporary directory, so the
+    real location has to be computed with that override removed.
+    """
+    saved = os.environ.pop(cache.CACHE_ENV, None)
+    try:
+        return cache.cache_dir()
+    finally:
+        if saved is not None:
+            os.environ[cache.CACHE_ENV] = saved
+
+
 def _install_real(isolated_cache):
-    """Populate the cache from the developer's copy, or skip."""
-    shared = os.environ.get("DOCFIX_TEST_FONT_CACHE", "/tmp/fontcache")
-    if not os.path.isdir(shared):
-        pytest.skip("no pre-populated pinned cache available")
+    """Populate the isolated cache from a real installed one, or skip.
+
+    Sourced from wherever `docfix fonts install` writes -- which is what CI runs
+    -- rather than a hand-made path. Pointing this at a fixed /tmp directory
+    meant every test below skipped in CI while the workflow claimed to exercise
+    the pinned path, and /tmp is world-writable besides.
+    """
+    shared = os.environ.get("DOCFIX_TEST_FONT_CACHE") or _real_cache_dir()
+    if not os.path.isdir(shared) or cache.verify(shared):
+        pytest.skip(
+            "no verified pinned cache available; run `docfix fonts install` "
+            "(CI does this in the coverage and PDF jobs)"
+        )
     shutil.copytree(shared, str(isolated_cache), dirs_exist_ok=True)
 
 
