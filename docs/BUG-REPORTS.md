@@ -46,6 +46,54 @@ Whether it reproduced, what was tried, anything relevant found while looking.
 
 ## Reports
 
+### BUG-007 — fsType was read past the end of a short OS/2 table
+
+- **Date:** 2026-08-24
+- **Status:** fixed
+- **Severity:** wrong output (licence gate)
+- **Found by:** the phase 8 malformed-font tests
+
+**What happened**
+
+`_read_fs_type` seeked to the OS/2 table's offset and read 12 bytes without
+bounding the read by the table's *declared* length. A font whose OS/2 table is
+shorter than 10 bytes therefore had its `fsType` read from whatever table
+happened to follow it in the file.
+
+**What was expected**
+
+`None` — "the font does not state a restriction" — for a table too short to
+contain the field.
+
+**Reproduction**
+
+Build a font with a 4-byte OS/2 table followed by a `name` table:
+
+```python
+data = build_font({b"OS/2": b"\x00" * 4, b"name": name_table({1: "Testface"})})
+sfnt.read(path).fs_type
+# -> 18, read from the name table's bytes
+```
+
+**Notes**
+
+`fsType` is the gate that decides whether a font may be embedded **at all** —
+Restricted License Embedding is refused for everyone, including a font the user
+names explicitly, and an open licence does not override it. So a value invented
+from adjacent bytes is the licence gate reading garbage.
+
+In this reproduction the garbage happened to be 18, which sets the restricted
+bit and therefore failed *safe*. That is luck, not design: the same adjacent
+bytes could as easily have been 0, which reads as "installable, embedding
+unrestricted" and would have granted a permission the vendor never gave.
+
+Not reachable from the pinned cache, whose fonts are checksummed, and not from
+any well-formed font. It is reachable from a system font directory, which is
+attacker-influenced if an attacker can place a file there.
+
+Fixed by returning `None` when the declared table length cannot hold the field,
+and reading exactly 10 bytes otherwise.
+
 ### BUG-006 — list markers render in base-14 Helvetica, not the document font
 
 - **Date:** 2026-08-23

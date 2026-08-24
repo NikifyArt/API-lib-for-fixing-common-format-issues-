@@ -118,8 +118,16 @@ def _read_fs_type(handle, tables) -> int | None:
     entry = tables.get(b"OS/2")
     if not entry:
         return None
-    handle.seek(entry[0])
-    data = handle.read(12)
+    offset, length = entry
+    # Bound the read by the table's *declared* length, not just by what the
+    # file happens to hold. Reading past a short OS/2 table takes fsType from
+    # whatever table follows it -- and fsType is the gate deciding whether a
+    # font may be embedded at all, so a value invented from adjacent bytes
+    # could grant a permission the vendor never gave. None means "not stated".
+    if length < 10:
+        return None
+    handle.seek(offset)
+    data = handle.read(10)
     if len(data) < 10:
         return None
     return struct.unpack(">H", data[8:10])[0]

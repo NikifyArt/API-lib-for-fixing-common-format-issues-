@@ -36,7 +36,7 @@ def _platform_dirs() -> tuple[str, ...]:
 def reportlab_font_dir() -> str | None:
     """reportlab bundles Bitstream Vera, so there is always at least one font."""
     try:
-        import reportlab
+        import reportlab  # type: ignore[import-untyped]
     except Exception:  # noqa: BLE001 - reportlab is an optional extra
         return None
     path = os.path.join(os.path.dirname(reportlab.__file__), "fonts")

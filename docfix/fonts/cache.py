@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "pinned.yaml")
 

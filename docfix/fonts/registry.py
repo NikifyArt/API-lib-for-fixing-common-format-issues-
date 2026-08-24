@@ -20,7 +20,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from docfix.fonts import discover, sfnt
 
@@ -338,8 +338,8 @@ def register(family: Family) -> str:
     if family.name in _REGISTERED:
         return _REGISTERED[family.name]
 
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfbase import pdfmetrics  # type: ignore[import-untyped]
+    from reportlab.pdfbase.ttfonts import TTFont  # type: ignore[import-untyped]
 
     base = family.name.replace(" ", "")
     registered: dict[str, str] = {}
@@ -372,8 +372,8 @@ def register_cid(name: str) -> str:
     if name in _REGISTERED:
         return _REGISTERED[name]
 
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase import pdfmetrics  # type: ignore[import-untyped]
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont  # type: ignore[import-untyped]
 
     try:
         pdfmetrics.registerFont(UnicodeCIDFont(name))

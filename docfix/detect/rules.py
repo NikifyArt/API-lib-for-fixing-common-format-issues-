@@ -26,6 +26,7 @@ from docfix.ir import (
     plain_text,
     walk,
 )
+from docfix.plugins import registered_rules
 
 
 def emits(*rule_ids: str):
@@ -239,7 +240,7 @@ def check_empty_paragraphs(doc: Document, config: Config = DEFAULT) -> list[Issu
     ]
 
 
-STRUCTURE_RULES = (
+BUILTIN_STRUCTURE_RULES = (
     check_heading_levels,
     check_empty_headings,
     check_list_markers,
@@ -352,12 +353,22 @@ def check_quote_consistency(text: str, config: Config = DEFAULT) -> list[Issue]:
     return []
 
 
-SOURCE_RULES = (
+BUILTIN_SOURCE_RULES = (
     check_trailing_whitespace,
     check_blank_line_runs,
     check_tab_indentation,
     check_quote_consistency,
 )
+
+
+def structure_rules():
+    """Every structure rule in effect: built-in, then any registered."""
+    return BUILTIN_STRUCTURE_RULES + registered_rules("structure")
+
+
+def source_rules():
+    """Every source rule in effect: built-in, then any registered."""
+    return BUILTIN_SOURCE_RULES + registered_rules("source")
 
 
 def run_all(
@@ -371,9 +382,26 @@ def run_all(
     """
     config = config or DEFAULT
     issues: list[Issue] = []
-    for rule in STRUCTURE_RULES:
+    for rule in structure_rules():
         issues.extend(rule(doc, config))
     if source is not None:
-        for source_rule in SOURCE_RULES:
+        for source_rule in source_rules():
             issues.extend(source_rule(source, config))
     return config.apply(sorted(issues, key=lambda i: (i.line or 0, i.rule)))
+
+
+def __getattr__(name: str):
+    # These were plain tuples before rules became registrable. Kept as live
+    # views so existing code sees registered rules rather than missing them.
+    if name in ("STRUCTURE_RULES", "SOURCE_RULES"):
+        import warnings
+
+        replacement = name.split("_")[0].lower() + "_rules()"
+        warnings.warn(
+            f"docfix.detect.rules.{name} is deprecated; call {replacement} instead, "
+            "which includes rules registered by plugins",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return structure_rules() if name == "STRUCTURE_RULES" else source_rules()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

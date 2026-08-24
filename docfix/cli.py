@@ -457,27 +457,32 @@ def cmd_fonts(args) -> int:
 
 def cmd_rules(args) -> int:
     """The rule inventory, which is what a user needs before configuring one."""
-    from docfix.cv import CV_RULES
-    from docfix.detect.rules import SOURCE_RULES, STRUCTURE_RULES
+    from docfix.cv import cv_rules
+    from docfix.detect.rules import source_rules, structure_rules
 
     config = _config(args)
     families = [
-        ("structure", STRUCTURE_RULES, "runs on the document structure, any format"),
-        ("source", SOURCE_RULES, "runs on raw text; binary formats skip these"),
-        ("cv", CV_RULES, "runs only when the document is a CV; report-only"),
+        ("structure", structure_rules(), "runs on the document structure, any format"),
+        ("source", source_rules(), "runs on raw text; binary formats skip these"),
+        ("cv", cv_rules(), "runs only when the document is a CV; report-only"),
     ]
 
     if config.source:
         print(f"config: {config.source}\n")
 
+    from docfix.plugins import registered_rules
+
     for name, rules, note in families:
         print(f"{name} rules -- {note}")
+        from_plugins = set(registered_rules(name))
         for rule in rules:
             summary = (rule.__doc__ or "").strip().split("\n")[0]
+            origin = "  [plugin]" if rule in from_plugins else ""
             for rule_id in getattr(rule, "rule_ids", ()):
                 marker = " " if config.enabled(rule_id) else "-"
-                print(f"  {marker} {rule_id:28} {summary}")
+                print(f"  {marker} {rule_id:28} {summary}{origin}")
                 summary = ""
+                origin = ""
         print()
 
     from docfix.adapters.pdf import COVERAGE_RULE_IDS
@@ -498,6 +503,17 @@ def cmd_rules(args) -> int:
         print("options set: " + ", ".join(sorted(config.options)))
     if not config.source:
         print("No config file found. See `docfix rules --help` for where one may live.")
+
+    # A plugin that failed is contained, not fatal -- but silence would leave a
+    # user wondering why their own rules never fire, so say so here.
+    from docfix.plugins import plugin_errors
+
+    errors = plugin_errors()
+    if errors:
+        print()
+        print(f"{len(errors)} plugin(s) failed to load:")
+        for error in errors:
+            print(f"  ! {error}")
     return EXIT_OK
 
 

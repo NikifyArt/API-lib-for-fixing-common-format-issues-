@@ -27,7 +27,7 @@ from typing import Any
 try:  # tomllib is stdlib from 3.11
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - exercised only on 3.10
-    import tomli as tomllib
+    import tomli as tomllib  # type: ignore[no-redef,import-not-found]
 
 CONFIG_NAME = "docfix.toml"
 PYPROJECT = "pyproject.toml"
@@ -146,11 +146,20 @@ def _validate(data: dict, where: str) -> None:
         if not isinstance(values, dict):
             raise ConfigError(f"{where}: options for {name!r} must be a table")
         for option, value in values.items():
-            if not isinstance(value, (str, int, float, bool)):
-                raise ConfigError(
-                    f"{where}: option {option!r} for {name!r} must be a single "
-                    f"value, not {type(value).__name__}"
-                )
+            if isinstance(value, (str, int, float, bool)):
+                continue
+            # A list of scalars is allowed: third-party rules routinely need one
+            # (banned words, ignore patterns). A nested table is not -- there is
+            # no rule shape that wants it, and allowing it would make a typo
+            # look like configuration.
+            if isinstance(value, list) and all(
+                isinstance(item, (str, int, float, bool)) for item in value
+            ):
+                continue
+            raise ConfigError(
+                f"{where}: option {option!r} for {name!r} must be a single value "
+                f"or a list of them, not {type(value).__name__}"
+            )
 
 
 def from_dict(data: dict, source: str | None = None) -> Config:

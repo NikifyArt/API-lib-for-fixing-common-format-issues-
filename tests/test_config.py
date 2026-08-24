@@ -158,19 +158,19 @@ def test_the_default_config_changes_nothing():
 def test_every_emitted_rule_id_is_declared(project):
     """Guards against a rule id drifting away from its declaration, which is
     what `docfix rules` and every config file address it by."""
-    from docfix.cv import CV_RULES
-    from docfix.detect.rules import SOURCE_RULES, STRUCTURE_RULES
+    from docfix.cv import cv_rules
+    from docfix.detect.rules import source_rules, structure_rules
 
-    declared = {i for r in STRUCTURE_RULES + SOURCE_RULES + CV_RULES for i in r.rule_ids}
+    declared = {i for r in structure_rules() + source_rules() + cv_rules() for i in r.rule_ids}
     emitted = {i.rule for i in docfix.detect(str(project / "docs" / "a.md"), cv=True)}
     assert emitted <= declared, f"undeclared rule id(s): {sorted(emitted - declared)}"
 
 
 def test_every_rule_declares_at_least_one_id():
-    from docfix.cv import CV_RULES
-    from docfix.detect.rules import SOURCE_RULES, STRUCTURE_RULES
+    from docfix.cv import cv_rules
+    from docfix.detect.rules import source_rules, structure_rules
 
-    for rule in STRUCTURE_RULES + SOURCE_RULES + CV_RULES:
+    for rule in structure_rules() + source_rules() + cv_rules():
         assert getattr(rule, "rule_ids", ()), f"{rule.__name__} declares no rule id"
 
 
@@ -357,9 +357,35 @@ def test_a_bad_option_value_names_the_option_and_the_file(project):
         found.int_option("cv-bullet-too-long", "max_length", 220)
 
 
-def test_a_non_scalar_option_is_rejected_at_load():
-    with pytest.raises(cfg.ConfigError, match="single value"):
-        cfg.from_dict({"options": {"r": {"x": [1, 2]}}})
+def test_a_list_option_is_accepted():
+    """Third-party rules routinely need one -- banned words, ignore patterns --
+    so a list of scalars is configuration, not a mistake."""
+    config = cfg.from_dict({"options": {"r": {"words": ["a", "b"]}}})
+    assert config.option("r", "words", []) == ["a", "b"]
+
+
+def test_an_empty_list_option_is_accepted():
+    config = cfg.from_dict({"options": {"r": {"words": []}}})
+    assert config.option("r", "words", ["fallback"]) == []
+
+
+def test_a_nested_table_option_is_rejected_at_load():
+    """No rule shape wants one, and allowing it would make a typo look like
+    configuration."""
+    with pytest.raises(cfg.ConfigError, match="single value or a list"):
+        cfg.from_dict({"options": {"r": {"x": {"nested": 1}}}})
+
+
+def test_a_list_of_tables_is_rejected_at_load():
+    with pytest.raises(cfg.ConfigError, match="single value or a list"):
+        cfg.from_dict({"options": {"r": {"x": [{"nested": 1}]}}})
+
+
+def test_a_list_option_is_still_refused_where_an_int_is_required():
+    """int_option must not quietly accept a list just because load allows one."""
+    config = cfg.from_dict({"options": {"cv-bullet-too-long": {"max_length": [1]}}})
+    with pytest.raises(cfg.ConfigError, match="max_length"):
+        config.int_option("cv-bullet-too-long", "max_length", 220)
 
 
 def test_font_rule_ids_are_listed_by_the_rules_command(capsys):

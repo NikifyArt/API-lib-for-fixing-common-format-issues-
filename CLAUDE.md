@@ -39,7 +39,10 @@ rules in an adapter.
 
 ```
 docfix/
-  __init__.py            public API: format_file(), format_text(), detect(), list_templates()
+  __init__.py            public API: format_file(), format_text(), detect(),
+                         list_templates(), register_adapter(), register_rule()
+  plugins.py             the extension registry + `docfix.plugins` entry points
+  py.typed               PEP 561 marker (DATA; must be in package-data)
   ir.py                  Document/Block/Run dataclasses; walk(), iter_runs(),
                          iter_block_sequences()
   config.py              docfix.toml / [tool.docfix]: rule control, options, exclude
@@ -47,8 +50,8 @@ docfix/
     loader.py            YAML → Template, with validation
     presets/*.yaml       formal, friendly, technical, minimal,
                          cv-classic, cv-modern, cv-compact
-  detect/rules.py        STRUCTURE_RULES (on the IR) + SOURCE_RULES (on raw text)
-  cv.py                  CV section/entry model + CV_RULES (report-only)
+  detect/rules.py        structure_rules() (on the IR) + source_rules() (raw text)
+  cv.py                  CV section/entry model + cv_rules() (report-only)
   fix/normalize.py       safe repairs only
   fonts/
     sfnt.py              standalone TTF reader: fsType, cmap, names, outline kind
@@ -59,12 +62,13 @@ docfix/
     registry.py          pool assembly, licence gate, reportlab registration
     coverage.py          per-span font choice; unrenderable reporting
   adapters/
-    __init__.py          Adapter registry; for_path() dispatches on extension
+    __init__.py          adapters(): registered first, then built-in;
+                         for_path() dispatches on extension
     markdown.py          read + write (markdown-it-py in, canonical Markdown out)
     pdf.py               scan() risk report, read (pdfplumber), write (reportlab)
     docx.py              read + write (python-docx); styles carry the structure
   cli.py                 format / check / scan / fonts / rules / templates
-tests/                   371 tests, 437 with all extras installed
+tests/                   458 tests, 524 with all extras installed
 ```
 
 ### Things that will bite you
@@ -124,6 +128,50 @@ tests/                   371 tests, 437 with all extras installed
   nothing about what to install. `tests/test_pdf.py` skips on the same basis —
   `pytest.importorskip` does not catch a panic and collection would fail.
 
+### The extension layer
+
+docfix is meant to be forked and adapted, so **every extension point is
+additive**. Nothing about adding a format, a rule or a template requires editing
+a core file — that is the whole design, not a convenience.
+
+- **Why it matters.** An adopter whose diff lands in `adapters/__init__.py` or
+  `detect/rules.py` conflicts with upstream on every pull, because those are the
+  files we keep changing. Registration keeps their diff out of ours, so their
+  fork rebases indefinitely. Do not add a hardcoded list of anything extensible.
+- **`plugins.py` holds the registries.** It deliberately does not import
+  `Adapter`, and validates duck-typed instead — `adapters/__init__.py` imports
+  *it*, so the other direction would be a cycle.
+- **Registered adapters are consulted before built-ins**, so claiming `.pdf`
+  overrides ours. That is the point: a fork substitutes its own reader without
+  touching the built-in one.
+- **A rule without `@emits` is refused.** A config file addresses rules by id,
+  so an undeclared rule could never be disabled or listed by `docfix rules` —
+  it would be a second-class rule, and silently so.
+- **Entry points load lazily and exactly once.** `load_plugins()` sets its
+  memo *before* dispatching, because a plugin that imports docfix would
+  otherwise re-enter and run every plugin twice.
+- **A failing plugin is contained, never fatal.** It is recorded and reported by
+  `docfix rules`. A third party's bug must not stop anyone formatting a
+  document — hence `BaseException`, which also catches native-import panics.
+- **The old tuple names are live views, not snapshots.** `ADAPTERS`,
+  `STRUCTURE_RULES`, `SOURCE_RULES` and `CV_RULES` still work via module
+  `__getattr__`, warn, and *include* registered extensions. A stale snapshot
+  would silently miss them, which is worse than either keeping or removing them.
+- **Shipping `py.typed` makes our type errors *their* errors.** The marker
+  tells a consumer's mypy to read docfix's own source, so anything unclean here
+  surfaces in their build — 24 errors, the first time it was tried. That is why
+  the packaging job type-checks from the consumer's side, in both dependency
+  shapes: the optional adapters are only imported in one of them. Keep
+  `# type: ignore[...]` on the import line itself (ruff's isort will wrap a long
+  one onto the next line, where mypy cannot see it) and before any `# noqa`,
+  which otherwise swallows it.
+- **`py.typed` is package-data.** Without the entry it is missing from the
+  wheel, and a consumer's mypy silently treats docfix as untyped — invisible in
+  an editable install, exactly like `catalog.yaml` was.
+
+`docs/EXTENDING.md` is the adopter-facing version of this. Its examples are
+executable; keep them that way.
+
 ### Configuration
 
 - **Every rule declares the ids it emits**, via `@emits(...)` in
@@ -134,6 +182,10 @@ tests/                   371 tests, 437 with all extras installed
 - **Disable and severity are a post-filter on Issues**, in `Config.apply`, not
   a skip of rule functions. That is the right granularity given the above, and
   it works for all rules with no signature churn.
+- **An option may be a scalar or a list of scalars**, not a nested table.
+  Third-party rules routinely need a list (banned words, ignore patterns);
+  a nested table has no rule shape that wants it, and allowing one would make a
+  typo look like configuration.
 - **Options do need to reach the rule**, so every rule takes `(doc, config)`
   (or `(text, config)` for source rules). Uniform on purpose — a decorator or
   module-level state would be cleverer and worse to test.
@@ -224,6 +276,11 @@ warning. The font pool exists to fix that, and these are the traps in it:
 - **A font stack is a list of alternatives.** Only report `font-unavailable`
   when *none* of a stack's families resolved — otherwise every machine without
   Georgia gets a warning about a document that renders fine.
+- **`fsType` reads are bounded by the OS/2 table's declared length.** Reading
+  past a short table takes the value from whatever table follows, and fsType is
+  the gate deciding whether a font may be embedded at all — a value invented
+  from adjacent bytes could grant a permission the vendor never gave. Too short
+  means `None` ("not stated"), never a guess. See BUG-007.
 - **`fsType` is parsed by `sfnt.py`, not reportlab.** reportlab does not expose
   it, and the gate must work on files reportlab refuses to load.
 
@@ -271,7 +328,7 @@ the font's own distribution**, never asserted from memory.
 ```bash
 pip install -e ".[dev]"       # pytest + ruff
 pip install -e ".[dev,all]"   # adds pdfplumber, reportlab, python-docx
-python -m pytest          # 371 tests (437 with all extras), ~9s
+python -m pytest          # 458 tests (524 with all extras), ~9s
 python -m ruff check .    # lint; must be clean
 python -m docfix.cli --help
 ```
@@ -286,6 +343,16 @@ template × sample combination:
 - **Round-trip stability** — `read(write(doc))` yields the same block structure.
 
 Add both when you add an adapter. Also assert the source file is untouched.
+
+Two more, added in phase 8:
+
+- **`docs/EXTENDING.md`'s examples are executable.** They are the first thing an
+  adopter runs. Run them when you change the extension API; a doc that no longer
+  works is a worse first impression than no doc.
+- **Malformed input gets tested with malformed input.** `tests/test_sfnt_robustness.py`
+  builds corrupt fonts byte by byte rather than asserting that the parser is
+  careful. That is how BUG-007 was found, and the interesting part of such a
+  fixture is precisely which byte is wrong — which a committed binary hides.
 
 Do not commit binary `.docx`/`.pdf` fixtures casually — they are opaque to diffs
 and inflate the repo permanently. Generate them from text at test time; if a real
@@ -302,11 +369,16 @@ binary fixture is genuinely needed, keep it small and comment why it exists.
 | 5 | CV/résumé template layer | **done** |
 | 6 | Config file, rule control, batch, `--diff` | **done** |
 | 7 | Reproducible font output | **done** |
+| 8 | Extension API, plugins, `py.typed`, contributor docs | **done** |
 
-To add a format: write the adapter with `read_path`/`write_path` (plus
-`source_text` if the format is text), register it in `adapters/__init__.py`, and
-add its optional dependency to `pyproject.toml`. Detection, fixing, and templates
-need no changes.
+To add a format **that ships with docfix**: write the adapter with
+`read_path`/`write_path` (plus `source_text` if the format is text), add it to
+`BUILTIN_ADAPTERS` in `adapters/__init__.py`, and add its optional dependency to
+`pyproject.toml`. Detection, fixing, and templates need no changes.
+
+To add one **from outside** — which is what an adopter should do, and needs no
+fork — call `docfix.register_adapter()` or ship a `docfix.plugins` entry point.
+See `docs/EXTENDING.md`.
 
 **PDF is not symmetrical with the others.** It is fixed-layout: generating from
 the IR is clean, reading back recovers text and rough structure but is lossy.
@@ -322,8 +394,9 @@ pull requests. Four jobs:
 | Job | What it protects |
 | --- | --- |
 | `test` | 3 Python versions × 3 dependency shapes (`dev`, `dev,pdf`, `dev,all`) — the extras are optional, so the package must work without them |
+| `coverage` | `pytest --cov` in the `dev,all` shape, gated at 90%. A floor to ratchet up, never down |
 | `lint` | `ruff` |
-| `packaging` | builds a wheel, asserts the runtime YAML is *inside* it, then installs **that wheel** and runs it |
+| `packaging` | builds a wheel, asserts the runtime YAML and `py.typed` are *inside* it, type-checks it from a **consumer's** side in both dependency shapes, then installs **that wheel** and runs it |
 | `invariants` | the promises, driven through the CLI: source never modified, idempotent, overwrite refused, non-Latin text survives PDF generation |
 
 Two things that are easy to get wrong here:

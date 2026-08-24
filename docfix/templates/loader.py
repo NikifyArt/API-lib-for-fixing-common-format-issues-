@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 PRESET_DIR = os.path.join(os.path.dirname(__file__), "presets")
 
