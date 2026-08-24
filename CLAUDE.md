@@ -416,6 +416,7 @@ pull requests. Four jobs:
 | `coverage` | `pytest --cov` in the `dev,all` shape, gated at 90%. A floor to ratchet up, never down |
 | `lint` | `ruff` |
 | `packaging` | builds a wheel, asserts the runtime YAML and `py.typed` are *inside* it, type-checks it from a **consumer's** side in both dependency shapes, then installs **that wheel** and runs it |
+| `release` (separate workflow) | fires on a `v*` tag only: full suite on 3 Pythons, build, tag-vs-version check, wheel-contents check, `twine check --strict`, then PyPI via Trusted Publishing |
 | `invariants` | the promises, driven through the CLI: source never modified, idempotent, overwrite refused, non-Latin text survives PDF generation |
 
 Two things that are easy to get wrong here:
@@ -470,6 +471,12 @@ with real remotes, since the reflog logic cannot be tested any other way.
 - **Pushing:** `git push -u origin <branch>`; retry network failures with
   exponential backoff (2s, 4s, 8s, 16s).
 - **Pull requests:** do not open one unless the user explicitly asks.
+- **Releasing:** a `v*` tag publishes to PyPI. Authentication is Trusted
+  Publishing (OIDC) — **never add a PyPI API token to this repository**; a
+  token is a long-lived secret, an OIDC identity is minted per run. The tag
+  must match `version` in `pyproject.toml` or the workflow refuses. A version
+  can never be re-uploaded to PyPI, so rehearse on TestPyPI first
+  (`workflow_dispatch`). See `docs/RELEASING.md`.
 - **Repo name gotcha:** the name ends with a **trailing hyphen** —
   `API-lib-for-fixing-common-format-issues-`. It is part of the real name and is
   easy to drop when hand-writing clone URLs or scripts. Copy it, don't retype it.

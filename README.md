@@ -13,10 +13,21 @@ The source is never modified.
 ## Install
 
 ```bash
-pip install -e ".[dev]"          # Markdown only
-pip install -e ".[dev,pdf]"      # adds PDF support
-pip install -e ".[dev,docx]"     # adds Word support
-pip install -e ".[dev,all]"      # everything
+pip install docfix            # Markdown
+pip install "docfix[pdf]"     # adds PDF support
+pip install "docfix[docx]"    # adds Word support
+pip install "docfix[all]"     # everything
+```
+
+The extras are optional on purpose: a Markdown-only install pulls in no PDF or
+Word machinery, and CI tests that shape separately. Python 3.10 or newer.
+
+Working on docfix itself:
+
+```bash
+git clone https://github.com/NikifyArt/API-lib-for-fixing-common-format-issues-
+cd API-lib-for-fixing-common-format-issues-
+pip install -e ".[dev,all]"
 ```
 
 ## Use it
@@ -435,6 +446,7 @@ the top of that file.
 
 ## Contributing
 
+Releases are cut from a `v*` tag; see [docs/RELEASING.md](docs/RELEASING.md).
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the invariants a change must
 respect, and what a good pull request looks like. Security issues go through
 [SECURITY.md](SECURITY.md) rather than a public issue. Changes are recorded in

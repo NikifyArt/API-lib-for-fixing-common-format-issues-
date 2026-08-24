@@ -3,14 +3,30 @@
 Notable changes to `docfix`. Format follows [Keep a Changelog][kac], and this
 project uses [Semantic Versioning][semver].
 
-Nothing has been released yet, so everything below is unreleased and the public
-API may still change. Once 0.1.0 ships, breaking changes will be called out here
-under **Changed** with a migration note.
+docfix is pre-1.0: the public API may still change, and a breaking change will
+be called out under **Changed** with a migration note rather than slipped in.
 
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
+
+Nothing yet.
+
+## 0.1.0 — 2026-08-24
+
+First release. Nine phases of work, summarised below newest first.
+
+**What you get:** `docfix format` and `docfix check` over Markdown, Word and
+PDF; eight templates including three for CVs; nineteen rules that repair
+cosmetic problems and only report semantic ones; a config file; reproducible
+PDF output from a pinned, checksummed font set; and an extension API that lets
+you add a format, a rule or a template without forking.
+
+```bash
+pip install docfix          # Markdown
+pip install "docfix[all]"   # adds PDF and Word
+```
 
 ### Fixed — DOCX round trip (phase 9)
 
