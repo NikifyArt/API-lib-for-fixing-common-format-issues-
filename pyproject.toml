@@ -30,7 +30,7 @@ dependencies = [
 docx = ["python-docx>=1.1"]
 pdf = ["reportlab>=4.0", "pypdf>=4.0", "pdfplumber>=0.11"]
 all = ["docfix[docx,pdf]"]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 docfix = "docfix.cli:main"
@@ -42,11 +42,28 @@ include = ["docfix*"]
 # Data files the package loads at runtime. An editable install resolves these
 # from the source tree whether or not they are declared here, so a missing
 # entry only shows up in a real wheel -- build one to check.
-docfix = ["templates/presets/*.yaml", "fonts/*.yaml"]
+# py.typed marks the package as typed (PEP 561); without it a consumer's
+# mypy or pyright treats every docfix import as Any, hints or no hints.
+docfix = ["templates/presets/*.yaml", "fonts/*.yaml", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.coverage.run]
+source = ["docfix"]
+# The optional extras are genuinely optional, so a Markdown-only run leaves the
+# PDF and DOCX adapters unexecuted. Measure in the `dev,all` shape or the number
+# is meaningless.
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
 
 [tool.ruff]
 line-length = 95

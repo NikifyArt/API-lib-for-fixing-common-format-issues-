@@ -21,6 +21,15 @@ from docfix.config import Config, ConfigError, discover
 from docfix.detect.rules import Issue, run_all
 from docfix.fix.normalize import normalize
 from docfix.ir import Document
+from docfix.plugins import (
+    PluginError,
+    load_plugins,
+    plugin_errors,
+    register_adapter,
+    register_rule,
+    unregister_adapter,
+    unregister_rule,
+)
 from docfix.templates import Template, TemplateError, list_presets, load
 
 __version__ = "0.1.0"
@@ -240,6 +249,7 @@ __all__ = [
     "ConfigError",
     "Document",
     "Issue",
+    "PluginError",
     "Result",
     "Template",
     "TemplateError",
@@ -251,6 +261,12 @@ __all__ = [
     "format_text",
     "list_templates",
     "load",
+    "load_plugins",
     "looks_like_cv",
+    "plugin_errors",
+    "register_adapter",
+    "register_rule",
     "scan",
+    "unregister_adapter",
+    "unregister_rule",
 ]

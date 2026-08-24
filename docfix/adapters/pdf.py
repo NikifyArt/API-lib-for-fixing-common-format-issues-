@@ -562,9 +562,9 @@ def _lines_to_blocks(lines: list, body_size: float, levels: dict[float, int]) ->
 
         bullet = BULLET_MARKER.match(text)
         ordered = ORDERED_MARKER.match(text)
-        if bullet or ordered:
+        marker = bullet or ordered
+        if marker is not None:
             flush_paragraph()
-            marker = bullet or ordered
             if list_items and list_ordered != bool(ordered):
                 flush_list()
             list_ordered = bool(ordered)
@@ -881,8 +881,8 @@ def coverage_issues(doc: Document, template: Template) -> list[Issue]:
 def _styles(template: Template, context: FontContext):
     """Build the reportlab paragraph styles a template describes."""
     _require("reportlab")
-    from reportlab.lib import colors
-    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors  # type: ignore[import-untyped]
+    from reportlab.lib.styles import ParagraphStyle  # type: ignore[import-untyped]
 
     fonts = template.fonts or {}
     spacing = template.spacing or {}
@@ -973,11 +973,16 @@ def _styles(template: Template, context: FontContext):
 
 
 def _flowables(blocks: list[Block], styles, template: Template, context: FontContext) -> list:
-    from reportlab.lib import colors
-    from reportlab.platypus import HRFlowable, Preformatted, Spacer, TableStyle
-    from reportlab.platypus import Image as RLImage
-    from reportlab.platypus import Paragraph as RLParagraph
-    from reportlab.platypus import Table as RLTable
+    from reportlab.lib import colors  # type: ignore[import-untyped]
+    from reportlab.platypus import (  # type: ignore[import-untyped]
+        HRFlowable,
+        Preformatted,
+        Spacer,
+        TableStyle,
+    )
+    from reportlab.platypus import Image as RLImage  # type: ignore[import-untyped]
+    from reportlab.platypus import Paragraph as RLParagraph  # type: ignore[import-untyped]
+    from reportlab.platypus import Table as RLTable  # type: ignore[import-untyped]
 
     bullet = template.markdown.bullet_marker or "-"
     out: list = []
@@ -1049,9 +1054,9 @@ def _flowables(blocks: list[Block], styles, template: Template, context: FontCon
 def write_path(doc: Document, template: Template, path: str) -> None:
     """Generate a new PDF from the IR."""
     _require("reportlab")
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate
+    from reportlab.lib.pagesizes import A4  # type: ignore[import-untyped]
+    from reportlab.lib.units import mm  # type: ignore[import-untyped]
+    from reportlab.platypus import SimpleDocTemplate  # type: ignore[import-untyped]
 
     context = build_font_context(template)
     styles = _styles(template, context)

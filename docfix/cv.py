@@ -26,6 +26,7 @@ from docfix.ir import (
     plain_text,
     walk,
 )
+from docfix.plugins import registered_rules
 
 # Section names a CV is expected to use, grouped by what they mean. Matching is
 # loose because people phrase them differently ("Work History", "Employment").
@@ -401,7 +402,7 @@ def check_section_order(doc, config: Config = DEFAULT) -> list[Issue]:
     return []
 
 
-CV_RULES = (
+BUILTIN_CV_RULES = (
     check_required_sections,
     check_contact_details,
     check_reverse_chronological,
@@ -413,17 +414,23 @@ CV_RULES = (
 )
 
 
+def cv_rules():
+    """Every CV rule in effect: built-in, then any registered."""
+    return BUILTIN_CV_RULES + registered_rules("cv")
+
+
 def check(doc, config: Config | None = None) -> list[Issue]:
     """Run every CV rule, sorted by rule name."""
     config = config or DEFAULT
     issues: list[Issue] = []
-    for rule in CV_RULES:
+    for rule in cv_rules():
         issues.extend(rule(doc, config))
     return config.apply(sorted(issues, key=lambda issue: issue.rule))
 
 
 __all__ = [
-    "CV_RULES",
+    "BUILTIN_CV_RULES",
+    "cv_rules",
     "Entry",
     "Section",
     "check",
@@ -432,3 +439,18 @@ __all__ = [
     "looks_like_cv",
     "sections",
 ]
+
+
+def __getattr__(name: str):
+    # CV_RULES was a plain tuple before rules became registrable.
+    if name == "CV_RULES":
+        import warnings
+
+        warnings.warn(
+            "docfix.cv.CV_RULES is deprecated; call cv_rules() instead, which "
+            "includes rules registered by plugins",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return cv_rules()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -276,14 +276,17 @@ def build_chain(pool: Pool, families: list[str], fallback: list[str] | None = No
     cid_entries.extend(cid_defaults or [])
 
     for entry in cid_entries:
-        name = entry.get("name")
-        if not name or name in seen:
+        # Distinct from the family `name` bound earlier in this function: this
+        # one is a CID collection's name, and reusing the binding made the two
+        # look interchangeable when they are not.
+        cid_name = entry.get("name")
+        if not cid_name or cid_name in seen:
             continue
-        seen.add(name)
+        seen.add(cid_name)
         try:
-            chain.append(option_for_cid(register_cid(name), entry.get("scripts")))
+            chain.append(option_for_cid(register_cid(cid_name), entry.get("scripts")))
         except FontError:
-            if cid and name == cid:
-                unresolved.append(name)
+            if cid and cid_name == cid:
+                unresolved.append(cid_name)
 
     return chain, unresolved

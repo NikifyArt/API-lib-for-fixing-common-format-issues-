@@ -1,8 +1,13 @@
 """Format adapter registry.
 
 An adapter converts one file format to and from the IR and holds no formatting
-logic of its own. Adding a format means adding a module here -- detection,
-fixing, and templates need no changes.
+logic of its own. Adding a format means adding a module -- detection, fixing,
+and templates need no changes.
+
+Three adapters ship with docfix. Anything else registers from outside via
+`docfix.register_adapter()` or a `docfix.plugins` entry point, so a fork adding
+a format never edits this file and never conflicts with upstream. See
+`docfix/plugins.py` and `docs/EXTENDING.md`.
 """
 
 from __future__ import annotations
@@ -15,6 +20,11 @@ from docfix.adapters import docx as _docx
 from docfix.adapters import markdown as _markdown
 from docfix.adapters import pdf as _pdf
 from docfix.ir import Document
+from docfix.plugins import (
+    register_adapter,
+    registered_adapters,
+    unregister_adapter,
+)
 from docfix.templates import Template
 
 
@@ -65,17 +75,26 @@ DOCX = Adapter(
     coverage_issues=None,
 )
 
-# The CV template layer registers here next.
-ADAPTERS: tuple[Adapter, ...] = (MARKDOWN, PDF, DOCX)
+BUILTIN_ADAPTERS: tuple[Adapter, ...] = (MARKDOWN, PDF, DOCX)
+
+
+def adapters() -> tuple[Adapter, ...]:
+    """Every adapter in effect: registered ones first, then the built-ins.
+
+    Registered first so that claiming an extension docfix already handles
+    overrides it. That is what lets a fork substitute its own PDF reader
+    without touching the built-in one.
+    """
+    return registered_adapters() + BUILTIN_ADAPTERS
 
 
 def supported_extensions() -> list[str]:
-    return sorted(ext for adapter in ADAPTERS for ext in adapter.extensions)
+    return sorted({ext for adapter in adapters() for ext in adapter.extensions})
 
 
 def for_path(path: str) -> Adapter:
     extension = os.path.splitext(path)[1].lower()
-    for adapter in ADAPTERS:
+    for adapter in adapters():
         if extension in adapter.extensions:
             return adapter
     raise UnsupportedFormatError(
@@ -84,13 +103,34 @@ def for_path(path: str) -> Adapter:
     )
 
 
+def __getattr__(name: str):
+    # ADAPTERS was a plain tuple before adapters became registrable. Kept as a
+    # live view rather than removed, so existing code keeps working and picks
+    # up registered adapters rather than silently missing them.
+    if name == "ADAPTERS":
+        import warnings
+
+        warnings.warn(
+            "docfix.adapters.ADAPTERS is deprecated; call adapters() instead, "
+            "which includes adapters registered by plugins",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return adapters()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
-    "ADAPTERS",
+    "BUILTIN_ADAPTERS",
     "DOCX",
     "MARKDOWN",
     "PDF",
     "Adapter",
     "UnsupportedFormatError",
+    "adapters",
     "for_path",
+    "register_adapter",
+    "registered_adapters",
     "supported_extensions",
+    "unregister_adapter",
 ]

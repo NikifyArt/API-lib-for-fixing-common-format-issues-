@@ -67,6 +67,29 @@ jobs:
           print('pdf extras are genuinely optional')
           "
 
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      # Measured in the `dev,all` shape deliberately: without the extras the
+      # PDF and DOCX adapters never execute, and the number would say nothing.
+      - name: Install fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core fonts-liberation
+      - run: pip install -e ".[dev,all]"
+      - name: Install pinned fonts
+        continue-on-error: true
+        run: python -m docfix.cli fonts install
+      # A floor, not a target. Raise it when coverage rises; never lower it to
+      # make a red build green -- that is the one change this gate exists to
+      # stop, and it is invisible in a diff that also adds a feature.
+      - name: Test with coverage
+        run: python -m pytest --cov=docfix --cov-report=term-missing --cov-fail-under=90
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -105,7 +128,32 @@ jobs:
               print('  ', name)
           assert any('presets' in n for n in data), 'preset YAML missing from the wheel'
           assert any('catalog' in n for n in data), 'font catalogue missing from the wheel'
+          assert any('pinned' in n for n in data), 'pinned font manifest missing from the wheel'
+          names = zipfile.ZipFile(wheel).namelist()
+          assert 'docfix/py.typed' in names, 'py.typed missing; consumers would see docfix as untyped'
           "
+
+      # py.typed makes a consumer's type checker read docfix's own source, so
+      # our internal type errors become errors in *their* build. Checked from
+      # the consumer's side, against the installed wheel, because that is the
+      # only place the effect is visible -- and in both dependency shapes,
+      # since the optional adapters are only imported in one of them.
+      - name: A consumer's type checker sees types, not errors
+        run: |
+          python -m venv /tmp/typed-env
+          /tmp/typed-env/bin/pip install --quiet "$(ls dist/*.whl)" mypy
+          cat > /tmp/consumer.py <<'PY'
+          import docfix
+
+          result = docfix.format_file("notes.md", template="formal")
+          reveal_type(result)
+          reveal_type(docfix.register_adapter)
+          PY
+          echo "--- base install ---"
+          /tmp/typed-env/bin/mypy /tmp/consumer.py
+          echo "--- with the extras ---"
+          /tmp/typed-env/bin/pip install --quiet "$(ls dist/*.whl)[all]"
+          /tmp/typed-env/bin/mypy /tmp/consumer.py
 
       # Install the wheel, not the source tree, and confirm it runs.
       - name: Installed wheel works

@@ -351,6 +351,44 @@ works for every format, and adding a format means adding one adapter.
 input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer → new file
 ```
 
+## Extending it
+
+docfix is built to be adapted, and **none of the below requires forking it.**
+
+| You want | You write |
+| --- | --- |
+| A different look | a YAML template — `-t ./house-style.yaml` takes any path |
+| An in-house rule | a function and `docfix.register_rule()` |
+| A new file format | an adapter and `docfix.register_adapter()` |
+| To ship either to your team | a `docfix.plugins` entry point — `pip install` and it is there |
+
+```python
+import docfix
+from docfix.adapters import Adapter
+from docfix.detect.rules import Issue, emits
+
+@emits("house-no-weasel-words")
+def check_weasel_words(doc, config):
+    """Flag hedging language the style guide bans."""
+    ...
+
+docfix.register_rule(check_weasel_words)
+docfix.register_adapter(Adapter(name="rtf", extensions=(".rtf",), ...))
+```
+
+Your rule is then configurable exactly like a built-in one, and
+`docfix format notes.rtf -t formal` works immediately — every template and every
+rule, because they all run on the shared IR.
+
+Registering an extension rather than editing a list is what keeps a fork
+mergeable: your diff stays out of the files upstream keeps changing.
+
+**[docs/EXTENDING.md](docs/EXTENDING.md)** has the full guide, including what to
+test and the traps that cost real debugging time.
+
+docfix is fully type-hinted and ships `py.typed`, so mypy and pyright see the
+types rather than `Any`.
+
 ## Roadmap
 
 | Phase | Scope | Status |
@@ -362,11 +400,12 @@ input → Reader → Document IR → Detect → Fix → ApplyTemplate → Writer
 | 5 | CV/résumé template layer | **done** |
 | 6 | Config file, rule control, batch, `--diff` | **done** |
 | 7 | Reproducible font output | **done** |
+| 8 | Extension API, plugins, `py.typed`, contributor docs | **done** |
 
 ## Development
 
 ```bash
-python -m pytest       # 371 tests, or 437 with all extras
+python -m pytest       # 458 tests, or 524 with all extras
 python -m ruff check . # lint
 ```
 
@@ -392,6 +431,18 @@ push:
 Both are driven by `.claude/hooks/push-counter.py`. Thresholds are constants at
 the top of that file.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the invariants a change must
+respect, and what a good pull request looks like. Security issues go through
+[SECURITY.md](SECURITY.md) rather than a public issue. Changes are recorded in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
+
+In practice: use it, modify it, ship it commercially, ship it closed-source,
+fork it and make it yours. Keep the copyright notice and the disclaimer with it,
+and do not use the author's name to endorse your product. That is the whole
+obligation.

@@ -62,7 +62,7 @@ class MissingDependencyError(ImportError):
 
 def _require():
     try:
-        import docx  # noqa: F401
+        import docx  # type: ignore[import-not-found]  # noqa: F401
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as exc:
@@ -80,7 +80,7 @@ def _require():
 
 def _runs_from_element(element, part) -> list[Run]:
     """Runs inside a paragraph element, following hyperlinks into their runs."""
-    from docx.text.run import Run as DocxRun
+    from docx.text.run import Run as DocxRun  # type: ignore[import-not-found]
 
     out: list[Run] = []
     for child in element.iterchildren():
@@ -161,9 +161,9 @@ def _style_name(paragraph) -> str:
 def read_path(path: str) -> Document:
     """Read a Word document into the IR."""
     _require()
-    from docx import Document as DocxDocument
-    from docx.table import Table as DocxTable
-    from docx.text.paragraph import Paragraph as DocxParagraph
+    from docx import Document as DocxDocument  # type: ignore[import-not-found]
+    from docx.table import Table as DocxTable  # type: ignore[import-not-found]
+    from docx.text.paragraph import Paragraph as DocxParagraph  # type: ignore
 
     source = DocxDocument(path)
     blocks: list[Block] = []
@@ -203,7 +203,7 @@ def read_path(path: str) -> Document:
         heading = HEADING_STYLE.match(style)
         if heading or style.lower() == "title":
             flush_list()
-            level = 1 if style.lower() == "title" else int(heading.group(1))
+            level = int(heading.group(1)) if heading else 1
             blocks.append(Heading(level=min(6, max(1, level)), runs=runs))
             continue
 
@@ -261,7 +261,7 @@ def _first_family(stack: str, fallback: str = "Calibri") -> str:
 
 
 def _apply_font(style, family: str, size: float | None = None, color: str | None = None):
-    from docx.shared import Pt, RGBColor
+    from docx.shared import Pt, RGBColor  # type: ignore[import-not-found]
 
     style.font.name = family
     # Word uses a separate attribute for East Asian text; without it, CJK
@@ -279,7 +279,7 @@ def _apply_font(style, family: str, size: float | None = None, color: str | None
 
 def _apply_template(document, template: Template) -> None:
     """Push the template's fonts, spacing, and colours into the document styles."""
-    from docx.shared import Pt
+    from docx.shared import Pt  # type: ignore[import-not-found]
 
     fonts = template.fonts or {}
     spacing = template.spacing or {}
@@ -327,8 +327,8 @@ def _apply_template(document, template: Template) -> None:
 
 def _add_hyperlink(paragraph, url: str, run: Run, palette: dict):
     """Word has no high-level hyperlink API; build the element directly."""
-    from docx.oxml.ns import qn
-    from docx.oxml.shared import OxmlElement
+    from docx.oxml.ns import qn  # type: ignore[import-not-found]
+    from docx.oxml.shared import OxmlElement  # type: ignore[import-not-found]
 
     part = paragraph.part
     rel_id = part.relate_to(
@@ -390,7 +390,7 @@ def _write_runs(paragraph, runs: list[Run], template: Template) -> None:
 
 
 def _write_blocks(document, blocks: list[Block], template: Template) -> None:
-    from docx.shared import Pt
+    from docx.shared import Pt  # type: ignore[import-not-found]
 
     for block in blocks:
         if isinstance(block, Heading):
@@ -458,7 +458,7 @@ def _write_blocks(document, blocks: list[Block], template: Template) -> None:
 def write_path(doc: Document, template: Template, path: str) -> None:
     """Write the IR out as a Word document."""
     _require()
-    from docx import Document as DocxDocument
+    from docx import Document as DocxDocument  # type: ignore[import-not-found]
 
     document = DocxDocument()
     _apply_template(document, template)
