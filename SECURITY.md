@@ -59,6 +59,37 @@ cannot contain one that is hostile.
 through `tomllib`/`tomli`. Templates are YAML loaded with a safe loader — no
 arbitrary object construction.
 
+## Repository hygiene
+
+docfix ships no credentials, and there are none in the working tree or in the
+git history. That is checkable rather than asserted:
+
+```bash
+# Every path that has ever existed, including ones later deleted. Read it:
+# there should be no .env, key, or credential file among them. At the time of
+# writing all 69 paths still exist -- nothing has ever been added and removed.
+git log --all --pretty=format: --name-only --diff-filter=A | sort -u
+
+# Any credential shape in any historical blob. This one must print nothing.
+git rev-list --all --objects | awk '{print $1}' | sort -u | while read -r sha; do
+  [ "$(git cat-file -t "$sha")" = blob ] || continue
+  git cat-file -p "$sha" | grep -aoE '(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+done
+```
+
+The second prints nothing. Test fixtures use reserved-by-standard values on purpose
+— `.test` addresses (RFC 6761) and the Ofcom fictional phone range — so no
+fixture can ever resemble a real contact.
+
+`.gitignore` covers credentials, key material and per-developer tool state as a
+guard against future accidents. The one file it must never start ignoring is
+`.claude/settings.json`, which registers a hook the project depends on; the
+per-developer `.claude/settings.local.json` is ignored instead.
+
+**Releases carry no token.** PyPI publishing uses Trusted Publishing (OIDC), so
+there is no long-lived secret in this repository or in its GitHub Actions
+secrets to leak. Do not add one — see `docs/RELEASING.md`.
+
 ## Out of scope
 
 - Vulnerabilities in `pdfplumber`, `reportlab`, `python-docx`, `markdown-it-py`
